@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -30,7 +29,7 @@ func NewRouter(
 		readinessHandler(logger, database, cache),
 	)
 
-	return mux
+	return applyMiddleware(logger, mux)
 }
 
 func healthHandler(logger *slog.Logger) http.HandlerFunc {
@@ -63,10 +62,12 @@ func readinessHandler(
 				slog.String("error", err.Error()),
 			)
 
-			writeJSON(
+			writeError(
 				w,
 				http.StatusServiceUnavailable,
-				statusResponse{Status: "not_ready"},
+				"ERR_INTERNAL",
+				"service is not ready",
+				requestIDFromContext(r.Context()),
 				logger,
 			)
 
@@ -80,10 +81,12 @@ func readinessHandler(
 				slog.String("error", err.Error()),
 			)
 
-			writeJSON(
+			writeError(
 				w,
 				http.StatusServiceUnavailable,
-				statusResponse{Status: "not_ready"},
+				"ERR_INTERNAL",
+				"service is not ready",
+				requestIDFromContext(r.Context()),
 				logger,
 			)
 
@@ -95,23 +98,6 @@ func readinessHandler(
 			http.StatusOK,
 			statusResponse{Status: "ready"},
 			logger,
-		)
-	}
-}
-
-func writeJSON(
-	w http.ResponseWriter,
-	statusCode int,
-	payload any,
-	logger *slog.Logger,
-) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		logger.Warn(
-			"failed to encode HTTP response",
-			slog.String("error", err.Error()),
 		)
 	}
 }
