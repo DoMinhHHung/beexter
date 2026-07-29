@@ -127,11 +127,33 @@ func ValidatePassword(password string) error {
 func ParsePublicRole(rawRole string) (Role, error) {
 	role := Role(strings.ToUpper(strings.TrimSpace(rawRole)))
 
-	switch role {
-	case RoleClient, RoleJobSeeker:
-		return role, nil
+	if !role.IsPublic() {
+		return "", errRoleInvalid
+	}
+
+	return role, nil
+}
+
+func (r Role) IsValid() bool {
+	switch r {
+	case RoleClient,
+		RoleJobSeeker,
+		RoleAgency,
+		RoleAdmin,
+		RoleViceAdmin:
+		return true
 
 	default:
-		return "", errRoleInvalid
+		return false
+	}
+}
+
+func (r Role) IsPublic() bool {
+	switch r {
+	case RoleClient, RoleJobSeeker:
+		return true
+
+	default:
+		return false
 	}
 }
