@@ -1,0 +1,117 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+)
+
+const readinessTimeout = 2 * time.Second
+
+type statusResponse struct {
+	Status string `json:"status"`
+}
+
+func NewRouter(
+	logger *slog.Logger,
+	database *pgxpool.Pool,
+	cache *redis.Client,
+) http.Handler {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /health", healthHandler(logger))
+	mux.HandleFunc(
+		"GET /ready",
+		readinessHandler(logger, database, cache),
+	)
+
+	return mux
+}
+
+func healthHandler(logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(
+			w,
+			http.StatusOK,
+			statusResponse{Status: "ok"},
+			logger,
+		)
+	}
+}
+
+func readinessHandler(
+	logger *slog.Logger,
+	database *pgxpool.Pool,
+	cache *redis.Client,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(
+			r.Context(),
+			readinessTimeout,
+		)
+		defer cancel()
+
+		if err := database.Ping(ctx); err != nil {
+			logger.Warn(
+				"readiness check failed",
+				slog.String("dependency", "postgresql"),
+				slog.String("error", err.Error()),
+			)
+
+			writeJSON(
+				w,
+				http.StatusServiceUnavailable,
+				statusResponse{Status: "not_ready"},
+				logger,
+			)
+
+			return
+		}
+
+		if err := cache.Ping(ctx).Err(); err != nil {
+			logger.Warn(
+				"readiness check failed",
+				slog.String("dependency", "redis"),
+				slog.String("error", err.Error()),
+			)
+
+			writeJSON(
+				w,
+				http.StatusServiceUnavailable,
+				statusResponse{Status: "not_ready"},
+				logger,
+			)
+
+			return
+		}
+
+		writeJSON(
+			w,
+			http.StatusOK,
+			statusResponse{Status: "ready"},
+			logger,
+		)
+	}
+}
+
+func writeJSON(
+	w http.ResponseWriter,
+	statusCode int,
+	payload any,
+	logger *slog.Logger,
+) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		logger.Warn(
+			"failed to encode HTTP response",
+			slog.String("error", err.Error()),
+		)
+	}
+}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +12,9 @@ import (
 	"time"
 
 	"github.com/DoMinhHHung/beexter/service/identity/internal/config"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/httpapi"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/postgres"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/redisclient"
 )
 
 func main() {
@@ -37,39 +39,60 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-
-		response := map[string]string{
-			"status": "ok",
-		}
-
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			logger.Warn(
-				"failed to write health response",
-				slog.String("error", err.Error()),
-			)
-		}
-	})
-
-	server := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
-
-	shutdownSignal, stopSignal := signal.NotifyContext(
+	applicationContext, stopSignal := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
 	defer stopSignal()
+
+	databaseContext, cancelDatabase := context.WithTimeout(
+		applicationContext,
+		cfg.PostgreSQL.ConnectTimeout,
+	)
+
+	database, err := postgres.Open(
+		databaseContext,
+		cfg.PostgreSQL.URL,
+	)
+	cancelDatabase()
+
+	if err != nil {
+		return fmt.Errorf("open PostgreSQL: %w", err)
+	}
+	defer database.Close()
+
+	redisContext, cancelRedis := context.WithTimeout(
+		applicationContext,
+		cfg.Redis.ConnectTimeout,
+	)
+
+	cache, err := redisclient.Open(redisContext, cfg.Redis)
+	cancelRedis()
+
+	if err != nil {
+		return fmt.Errorf("open Redis: %w", err)
+	}
+
+	defer func() {
+		if err := cache.Close(); err != nil {
+			logger.Warn(
+				"failed to close Redis client",
+				slog.String("error", err.Error()),
+			)
+		}
+	}()
+
+	handler := httpapi.NewRouter(logger, database, cache)
+
+	server := &http.Server{
+		Addr:              cfg.HTTP.Addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 
 	serverError := make(chan error, 1)
 
@@ -79,28 +102,43 @@ func run(logger *slog.Logger) error {
 			slog.String("address", server.Addr),
 		)
 
-		err := server.ListenAndServe()
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverError <- fmt.Errorf("listen and serve: %w", err)
-		}
+		serverError <- server.ListenAndServe()
 	}()
 
 	select {
-	case <-shutdownSignal.Done():
+	case <-applicationContext.Done():
+		stopSignal()
 		logger.Info("shutdown signal received")
 
 	case err := <-serverError:
-		return err
+		if err == nil || errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+
+		return fmt.Errorf("serve HTTP: %w", err)
 	}
 
 	shutdownContext, cancelShutdown := context.WithTimeout(
 		context.Background(),
-		cfg.ShutdownTimeout,
+		cfg.HTTP.ShutdownTimeout,
 	)
 	defer cancelShutdown()
 
 	if err := server.Shutdown(shutdownContext); err != nil {
-		return fmt.Errorf("shutdown http server: %w", err)
+		closeErr := server.Close()
+		if closeErr != nil {
+			return errors.Join(
+				fmt.Errorf("shutdown HTTP server: %w", err),
+				fmt.Errorf("force close HTTP server: %w", closeErr),
+			)
+		}
+
+		return fmt.Errorf("shutdown HTTP server: %w", err)
+	}
+
+	serveErr := <-serverError
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		return fmt.Errorf("HTTP server stopped unexpectedly: %w", serveErr)
 	}
 
 	logger.Info("http server stopped gracefully")
