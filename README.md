@@ -1,53 +1,31 @@
-# Beexter Identity Service
+# Beexter Backend
 
-Identity Service cho nền tảng kết nối việc làm Beexter.
+Backend monorepo for the Beexter platform.
 
-## Trạng thái hiện tại
+## Repository layout
 
-Phase 0 bootstrap:
+Each deployable service is an independent Go module and owns its own `go.mod` file.
 
-- Go HTTP server dùng standard library
-- Structured logging với `log/slog`
-- Graceful shutdown
-- `GET /health` cho liveness
-- `GET /ready` cho readiness
-- Config qua environment variables
-- Unit tests cơ bản
+```text
+services/
+  identity/
+    go.mod
+    cmd/api/
+    internal/
+```
 
-`/ready` hiện trả `503 Service Unavailable` có chủ đích cho đến khi PostgreSQL và Redis được wire vào readiness check.
+The repository root intentionally has no `go.mod`. A local `go.work` may be created for multi-module development and is ignored by Git.
 
-## Yêu cầu
-
-- Go 1.26.5
-
-## Chạy local
+## Local development
 
 ```bash
-cp .env.example .env
-set -a && source .env && set +a
+go work init ./services/identity
+make fmt
+make test
 make run
 ```
 
-Kiểm tra:
+The identity service listens on `:8080` by default.
 
-```bash
-curl -i http://localhost:8080/health
-curl -i http://localhost:8080/ready
-```
-
-## Quality checks
-
-```bash
-make check
-make test-race
-```
-
-## Cấu trúc ban đầu
-
-```text
-cmd/api/                    application entrypoint
-internal/config/            environment configuration
-internal/transport/httpapi/ HTTP routing and handlers
-```
-
-Chưa tạo Domain, Application service hoặc Repository interface vì chưa có use case và database schema khóa để triển khai đúng boundary.
+- `GET /health`: process liveness.
+- `GET /ready`: dependency readiness. It returns `503` until PostgreSQL and Redis checks are wired.

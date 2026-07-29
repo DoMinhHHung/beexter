@@ -1,18 +1,16 @@
-.PHONY: run fmt vet test test-race check
+SERVICE ?= identity
+SERVICE_DIR := services/$(SERVICE)
 
-run:
-	go run ./cmd/api
+.PHONY: fmt vet test run
 
 fmt:
-	go fmt ./...
+	cd $(SERVICE_DIR) && gofmt -w .
 
 vet:
-	go vet ./...
+	cd $(SERVICE_DIR) && go vet ./...
 
 test:
-	go test ./...
+	cd $(SERVICE_DIR) && go test ./...
 
-test-race:
-	go test -race ./...
-
-check: fmt vet test
+run:
+	cd $(SERVICE_DIR) && go run ./cmd/api

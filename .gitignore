@@ -1,28 +1,33 @@
-# Build outputs
-/bin/
-/tmp/
+# Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 
-# Test artifacts
+# Test binaries and coverage artifacts
 *.test
 *.out
 coverage.*
 *.coverprofile
 profile.cov
 
-# Local environment
+# Local Go workspace
+# Each service owns its own go.mod; go.work is developer-local.
+go.work
+go.work.sum
+
+# Environment files
 .env
 .env.*
 !.env.example
 
-# Go workspace
-go.work
-go.work.sum
+# Build and temporary output
+bin/
+dist/
+tmp/
 
-# IDE
+# Editors and operating systems
 .idea/
 .vscode/
+.DS_Store
