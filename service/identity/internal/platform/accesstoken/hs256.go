@@ -26,21 +26,12 @@ const (
 var (
 	ErrNotInitialized = errors.New("access-token service is not initialized")
 	ErrInvalidSecret  = errors.New("JWT HS256 secret must contain at least 32 bytes")
-	ErrTokenInvalid   = errors.New("access token is invalid")
-	ErrTokenExpired   = errors.New("access token has expired")
+	ErrTokenInvalid   = appauth.ErrAccessTokenInvalid
+	ErrTokenExpired   = appauth.ErrAccessTokenExpired
 )
 
 type HS256 struct {
 	secret []byte
-}
-
-type VerifiedClaims struct {
-	Subject       identity.ID
-	Role          identity.Role
-	EmailVerified bool
-	IssuedAt      time.Time
-	ExpiresAt     time.Time
-	JTI           string
 }
 
 type tokenHeader struct {
@@ -50,6 +41,7 @@ type tokenHeader struct {
 
 type issuedClaims struct {
 	Subject       string `json:"sub"`
+	DeviceID      string `json:"device_id"`
 	Role          string `json:"role"`
 	EmailVerified bool   `json:"email_verified"`
 	IssuedAt      int64  `json:"iat"`
@@ -59,6 +51,7 @@ type issuedClaims struct {
 
 type parsedClaims struct {
 	Subject       string `json:"sub"`
+	DeviceID      string `json:"device_id"`
 	Role          string `json:"role"`
 	EmailVerified *bool  `json:"email_verified"`
 	IssuedAt      int64  `json:"iat"`
@@ -74,9 +67,7 @@ func New(secret string) (*HS256, error) {
 	secretCopy := make([]byte, len(secret))
 	copy(secretCopy, secret)
 
-	return &HS256{
-		secret: secretCopy,
-	}, nil
+	return &HS256{secret: secretCopy}, nil
 }
 
 func (s *HS256) Issue(
@@ -90,6 +81,14 @@ func (s *HS256) Issue(
 		!claims.Role.IsValid() ||
 		claims.IssuedAt.IsZero() {
 		return "", time.Time{}, ErrTokenInvalid
+	}
+
+	if err := validateCanonicalUUIDV7(claims.DeviceID); err != nil {
+		return "", time.Time{}, fmt.Errorf(
+			"%w: validate device ID: %v",
+			ErrTokenInvalid,
+			err,
+		)
 	}
 
 	if err := validateCanonicalUUIDV7(claims.JTI); err != nil {
@@ -116,6 +115,7 @@ func (s *HS256) Issue(
 
 	claimsSegment, err := encodeJSONSegment(issuedClaims{
 		Subject:       claims.Subject.String(),
+		DeviceID:      claims.DeviceID,
 		Role:          string(claims.Role),
 		EmailVerified: claims.EmailVerified,
 		IssuedAt:      issuedAt.Unix(),
@@ -141,13 +141,13 @@ func (s *HS256) Issue(
 func (s *HS256) Verify(
 	rawToken string,
 	now time.Time,
-) (VerifiedClaims, error) {
+) (appauth.VerifiedAccessToken, error) {
 	if s == nil || len(s.secret) < minimumSecretLength {
-		return VerifiedClaims{}, ErrNotInitialized
+		return appauth.VerifiedAccessToken{}, ErrNotInitialized
 	}
 
 	if now.IsZero() {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	parts := strings.Split(rawToken, ".")
@@ -155,21 +155,21 @@ func (s *HS256) Verify(
 		parts[0] == "" ||
 		parts[1] == "" ||
 		parts[2] == "" {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	var header tokenHeader
 	if err := decodeJSONSegment(parts[0], &header); err != nil {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	if header.Algorithm != "HS256" || header.Type != "JWT" {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	receivedSignature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil || len(receivedSignature) != sha256.Size {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	expectedSignature := sign(
@@ -178,52 +178,60 @@ func (s *HS256) Verify(
 	)
 
 	if !hmac.Equal(receivedSignature, expectedSignature) {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	var claims parsedClaims
 	if err := decodeJSONSegment(parts[1], &claims); err != nil {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	if claims.Subject == "" ||
+		claims.DeviceID == "" ||
 		claims.Role == "" ||
 		claims.EmailVerified == nil ||
 		claims.IssuedAt <= 0 ||
 		claims.ExpiresAt <= 0 ||
 		claims.JTI == "" {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	subject, err := identity.ParseID(claims.Subject)
 	if err != nil {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
+	}
+
+	if err := validateCanonicalUUIDV7(claims.DeviceID); err != nil {
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	role := identity.Role(claims.Role)
 	if !role.IsValid() {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	if err := validateCanonicalUUIDV7(claims.JTI); err != nil {
-		return VerifiedClaims{}, ErrTokenInvalid
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
-	if claims.ExpiresAt-claims.IssuedAt != int64(accessTokenTTL/time.Second) {
-		return VerifiedClaims{}, ErrTokenInvalid
+	if claims.ExpiresAt-claims.IssuedAt !=
+		int64(accessTokenTTL/time.Second) {
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	nowUnix := now.UTC().Unix()
-	if claims.IssuedAt > nowUnix+int64(allowedClockSkew/time.Second) {
-		return VerifiedClaims{}, ErrTokenInvalid
+	if claims.IssuedAt >
+		nowUnix+int64(allowedClockSkew/time.Second) {
+		return appauth.VerifiedAccessToken{}, ErrTokenInvalid
 	}
 
 	if claims.ExpiresAt <= nowUnix {
-		return VerifiedClaims{}, ErrTokenExpired
+		return appauth.VerifiedAccessToken{}, ErrTokenExpired
 	}
 
-	return VerifiedClaims{
+	return appauth.VerifiedAccessToken{
 		Subject:       subject,
+		DeviceID:      claims.DeviceID,
 		Role:          role,
 		EmailVerified: *claims.EmailVerified,
 		IssuedAt:      time.Unix(claims.IssuedAt, 0).UTC(),
@@ -292,4 +300,5 @@ func validateCanonicalUUIDV7(rawID string) error {
 
 var _ interface {
 	Issue(appauth.AccessTokenClaims) (string, time.Time, error)
+	Verify(string, time.Time) (appauth.VerifiedAccessToken, error)
 } = (*HS256)(nil)

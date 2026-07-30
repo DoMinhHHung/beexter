@@ -251,7 +251,8 @@ type fakeAccessTokenIssuer struct{}
 func (*fakeAccessTokenIssuer) Issue(
 	claims appauth.AccessTokenClaims,
 ) (string, time.Time, error) {
-	if claims.JTI != testAccessTokenJTI {
+	if claims.DeviceID != testDeviceID ||
+		claims.JTI != testAccessTokenJTI {
 		return "", time.Time{}, errors.New("unexpected access-token JTI")
 	}
 

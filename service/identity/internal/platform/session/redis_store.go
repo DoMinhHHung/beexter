@@ -1,10 +1,13 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -34,6 +37,26 @@ if redis.call("SCARD", KEYS[2]) == 0 then
     redis.call("DEL", KEYS[2])
 end
 return deleted
+`
+
+const listSessionsScript = `
+local session_keys = redis.call("SMEMBERS", KEYS[1])
+local sessions = {}
+
+for _, session_key in ipairs(session_keys) do
+    local raw_session = redis.call("GET", session_key)
+    if raw_session then
+        table.insert(sessions, raw_session)
+    else
+        redis.call("SREM", KEYS[1], session_key)
+    end
+end
+
+if redis.call("SCARD", KEYS[1]) == 0 then
+    redis.call("DEL", KEYS[1])
+end
+
+return sessions
 `
 
 const rotateSessionScript = `
@@ -107,6 +130,7 @@ type Store struct {
 	operationTimeout time.Duration
 	saveScript       *redis.Script
 	deleteScript     *redis.Script
+	listScript       *redis.Script
 	rotateScript     *redis.Script
 	revokeAllScript  *redis.Script
 }
@@ -139,6 +163,7 @@ func NewStore(
 		operationTimeout: operationTimeout,
 		saveScript:       redis.NewScript(saveSessionScript),
 		deleteScript:     redis.NewScript(deleteSessionScript),
+		listScript:       redis.NewScript(listSessionsScript),
 		rotateScript:     redis.NewScript(rotateSessionScript),
 		revokeAllScript:  redis.NewScript(revokeAllSessionsScript),
 	}, nil
@@ -214,6 +239,53 @@ func (s *Store) Delete(
 	}
 
 	return nil
+}
+
+func (s *Store) List(
+	ctx context.Context,
+	userID identity.ID,
+) ([]appauth.Session, error) {
+	if err := s.validate(ctx); err != nil {
+		return nil, err
+	}
+
+	if userID.IsZero() {
+		return nil, ErrInvalidSession
+	}
+
+	operationContext, cancelOperation := context.WithTimeout(
+		ctx,
+		s.operationTimeout,
+	)
+	defer cancelOperation()
+
+	rawSessions, err := s.listScript.Run(
+		operationContext,
+		s.client,
+		[]string{indexKey(userID)},
+	).StringSlice()
+	if err != nil {
+		return nil, fmt.Errorf("list refresh sessions from Redis: %w", err)
+	}
+
+	sessions := make([]appauth.Session, 0, len(rawSessions))
+	for _, rawSession := range rawSessions {
+		session, err := unmarshalSession(rawSession)
+		if err != nil {
+			return nil, err
+		}
+
+		if session.UserID != userID {
+			return nil, fmt.Errorf(
+				"%w: session identity does not match index",
+				ErrCorruptSession,
+			)
+		}
+
+		sessions = append(sessions, session)
+	}
+
+	return sessions, nil
 }
 
 func (s *Store) Rotate(
@@ -308,6 +380,7 @@ func (s *Store) validate(ctx context.Context) error {
 		s.client == nil ||
 		s.saveScript == nil ||
 		s.deleteScript == nil ||
+		s.listScript == nil ||
 		s.rotateScript == nil ||
 		s.revokeAllScript == nil {
 		return ErrNotInitialized
@@ -336,6 +409,102 @@ func marshalSession(session appauth.Session) ([]byte, error) {
 	}
 
 	return payload, nil
+}
+
+func unmarshalSession(rawSession string) (appauth.Session, error) {
+	decoder := json.NewDecoder(bytes.NewBufferString(rawSession))
+	decoder.DisallowUnknownFields()
+
+	var payload redisPayload
+	if err := decoder.Decode(&payload); err != nil {
+		return appauth.Session{}, fmt.Errorf(
+			"%w: decode session payload: %v",
+			ErrCorruptSession,
+			err,
+		)
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return appauth.Session{}, fmt.Errorf(
+				"%w: multiple JSON values",
+				ErrCorruptSession,
+			)
+		}
+
+		return appauth.Session{}, fmt.Errorf(
+			"%w: decode trailing session data: %v",
+			ErrCorruptSession,
+			err,
+		)
+	}
+
+	userID, err := identity.ParseID(payload.UserID)
+	if err != nil {
+		return appauth.Session{}, fmt.Errorf(
+			"%w: parse user ID: %v",
+			ErrCorruptSession,
+			err,
+		)
+	}
+
+	ipAddress, err := netip.ParseAddr(payload.IPAddress)
+	if err != nil {
+		return appauth.Session{}, fmt.Errorf(
+			"%w: parse IP address: %v",
+			ErrCorruptSession,
+			err,
+		)
+	}
+
+	createdAt, err := time.Parse(time.RFC3339, payload.CreatedAt)
+	if err != nil {
+		return appauth.Session{}, fmt.Errorf(
+			"%w: parse created_at: %v",
+			ErrCorruptSession,
+			err,
+		)
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, payload.ExpiresAt)
+	if err != nil {
+		return appauth.Session{}, fmt.Errorf(
+			"%w: parse expires_at: %v",
+			ErrCorruptSession,
+			err,
+		)
+	}
+
+	lastUsedAt, err := time.Parse(time.RFC3339, payload.LastUsedAt)
+	if err != nil {
+		return appauth.Session{}, fmt.Errorf(
+			"%w: parse last_used_at: %v",
+			ErrCorruptSession,
+			err,
+		)
+	}
+
+	session := appauth.Session{
+		Token:      payload.Token,
+		UserID:     userID,
+		DeviceID:   payload.DeviceID,
+		UserAgent:  payload.UserAgent,
+		IPAddress:  ipAddress.Unmap(),
+		CreatedAt:  createdAt.UTC(),
+		ExpiresAt:  expiresAt.UTC(),
+		LastUsedAt: lastUsedAt.UTC(),
+	}
+
+	if err := validateSession(session); err != nil {
+		return appauth.Session{}, fmt.Errorf(
+			"%w: %v",
+			ErrCorruptSession,
+			err,
+		)
+	}
+
+	return session, nil
 }
 
 func validateSession(session appauth.Session) error {

@@ -11,10 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	authenticateapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/authenticate"
 	loginapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
 	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
 	refreshapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
 	resendverificationapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/resendverification"
+	sessionmanagementapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/sessionmanagement"
 	signupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
 	verifyemailapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/config"
@@ -188,6 +190,12 @@ func run(logger *slog.Logger) error {
 		)
 	}
 
+	authenticationRepository, err :=
+		postgres.NewAuthenticationRepository(database)
+	if err != nil {
+		return fmt.Errorf("create authentication repository: %w", err)
+	}
+
 	passwordHasher := passwordhash.New()
 	identifierGenerator := idgen.NewUUIDV7()
 
@@ -214,6 +222,20 @@ func run(logger *slog.Logger) error {
 	)
 	if err != nil {
 		return fmt.Errorf("create session store: %w", err)
+	}
+
+	authenticateUseCase, err := authenticateapp.New(
+		authenticationRepository,
+		accessTokenService,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("create authentication use case: %w", err)
+	}
+
+	sessionManager, err := sessionmanagementapp.New(sessionStore)
+	if err != nil {
+		return fmt.Errorf("create session manager: %w", err)
 	}
 
 	signupUseCase, err := signupapp.New(
@@ -341,11 +363,15 @@ func run(logger *slog.Logger) error {
 		logger,
 		database,
 		cache,
-		signupUseCase,
-		loginUseCase,
-		refreshUseCase,
-		verifyEmailUseCase,
-		resendVerificationUseCase,
+		httpapi.RouterDependencies{
+			Signup:             signupUseCase,
+			Login:              loginUseCase,
+			Refresh:            refreshUseCase,
+			VerifyEmail:        verifyEmailUseCase,
+			ResendVerification: resendVerificationUseCase,
+			Authenticator:      authenticateUseCase,
+			Sessions:           sessionManager,
+		},
 	)
 
 	server := &http.Server{

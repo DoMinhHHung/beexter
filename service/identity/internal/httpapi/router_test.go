@@ -14,11 +14,7 @@ func TestHealthHandler(t *testing.T) {
 		testLogger(),
 		nil,
 		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
+		RouterDependencies{},
 	)
 
 	request := httptest.NewRequest(

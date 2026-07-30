@@ -16,15 +16,21 @@ type statusResponse struct {
 	Status string `json:"status"`
 }
 
+type RouterDependencies struct {
+	Signup             SignupExecutor
+	Login              LoginExecutor
+	Refresh            RefreshExecutor
+	VerifyEmail        VerifyEmailExecutor
+	ResendVerification ResendVerificationExecutor
+	Authenticator      Authenticator
+	Sessions           SessionManager
+}
+
 func NewRouter(
 	logger *slog.Logger,
 	database *pgxpool.Pool,
 	cache *redis.Client,
-	signupExecutor SignupExecutor,
-	loginExecutor LoginExecutor,
-	refreshExecutor RefreshExecutor,
-	verifyEmailExecutor VerifyEmailExecutor,
-	resendVerificationExecutor ResendVerificationExecutor,
+	dependencies RouterDependencies,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -40,30 +46,58 @@ func NewRouter(
 
 	mux.HandleFunc(
 		"POST /v1/auth/signup",
-		signupHandler(logger, signupExecutor),
+		signupHandler(logger, dependencies.Signup),
 	)
 
 	mux.HandleFunc(
 		"POST /v1/auth/login",
-		loginHandler(logger, loginExecutor),
+		loginHandler(logger, dependencies.Login),
 	)
 
 	mux.HandleFunc(
 		"POST /v1/auth/refresh",
-		refreshHandler(logger, refreshExecutor),
+		refreshHandler(logger, dependencies.Refresh),
 	)
 
 	mux.HandleFunc(
 		"POST /v1/auth/verify-email",
-		verifyEmailHandler(logger, verifyEmailExecutor),
+		verifyEmailHandler(logger, dependencies.VerifyEmail),
 	)
 
 	mux.HandleFunc(
 		"POST /v1/auth/resend-verification",
 		resendVerificationHandler(
 			logger,
-			resendVerificationExecutor,
+			dependencies.ResendVerification,
 		),
+	)
+
+	protected := func(handler http.Handler) http.Handler {
+		return authenticationMiddleware(
+			logger,
+			dependencies.Authenticator,
+			handler,
+		)
+	}
+
+	mux.Handle(
+		"POST /v1/auth/logout",
+		protected(logoutCurrentHandler(logger, dependencies.Sessions)),
+	)
+
+	mux.Handle(
+		"POST /v1/auth/logout-all",
+		protected(logoutAllHandler(logger, dependencies.Sessions)),
+	)
+
+	mux.Handle(
+		"GET /v1/me/sessions",
+		protected(listSessionsHandler(logger, dependencies.Sessions)),
+	)
+
+	mux.Handle(
+		"DELETE /v1/me/sessions/{device_id}",
+		protected(revokeSessionHandler(logger, dependencies.Sessions)),
 	)
 
 	return applyMiddleware(logger, mux)

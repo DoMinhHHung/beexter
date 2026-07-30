@@ -234,6 +234,7 @@ func (u *UseCase) Execute(
 	accessToken, accessExpiresAt, err := u.accessTokens.Issue(
 		appauth.AccessTokenClaims{
 			Subject:       account.ID,
+			DeviceID:      claims.DeviceID,
 			Role:          account.Role,
 			EmailVerified: account.EmailVerified,
 			IssuedAt:      now,

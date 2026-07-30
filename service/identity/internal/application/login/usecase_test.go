@@ -378,7 +378,9 @@ type fakeAccessTokenIssuer struct{}
 func (*fakeAccessTokenIssuer) Issue(
 	claims AccessTokenClaims,
 ) (string, time.Time, error) {
-	if claims.Subject != testUserID || claims.JTI != testAccessJTI {
+	if claims.Subject != testUserID ||
+		claims.DeviceID != testDeviceID ||
+		claims.JTI != testAccessJTI {
 		return "", time.Time{}, errors.New("unexpected claims")
 	}
 	return "access-token", testNow.Add(time.Hour), nil

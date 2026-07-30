@@ -221,3 +221,83 @@ func newTestStore(
 
 	return server, client, store
 }
+
+func TestStoreListReturnsSessionsAndCleansStaleIndex(t *testing.T) {
+	t.Parallel()
+
+	_, client, store := newTestStore(t)
+
+	current := validSession()
+	if err := store.Save(context.Background(), current); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	staleSessionKey := key(
+		testUserID,
+		"0198f124-659f-7cbd-a441-dc7eea175079",
+	)
+	if err := client.SAdd(
+		context.Background(),
+		indexKey(testUserID),
+		staleSessionKey,
+	).Err(); err != nil {
+		t.Fatalf("add stale index member: %v", err)
+	}
+
+	sessions, err := store.List(context.Background(), testUserID)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	if sessions[0].Token != testTokenID ||
+		sessions[0].DeviceID != testDeviceID ||
+		sessions[0].UserID != testUserID {
+		t.Fatalf("unexpected session: %+v", sessions[0])
+	}
+
+	stillIndexed, err := client.SIsMember(
+		context.Background(),
+		indexKey(testUserID),
+		staleSessionKey,
+	).Result()
+	if err != nil {
+		t.Fatalf("check stale index member: %v", err)
+	}
+
+	if stillIndexed {
+		t.Fatal("expected stale index member to be removed")
+	}
+}
+
+func TestStoreListRejectsCorruptSession(t *testing.T) {
+	t.Parallel()
+
+	_, client, store := newTestStore(t)
+
+	sessionKey := key(testUserID, testDeviceID)
+	if err := client.Set(
+		context.Background(),
+		sessionKey,
+		`{"token":"not-a-uuid"}`,
+		refreshTokenTTL,
+	).Err(); err != nil {
+		t.Fatalf("set corrupt session: %v", err)
+	}
+
+	if err := client.SAdd(
+		context.Background(),
+		indexKey(testUserID),
+		sessionKey,
+	).Err(); err != nil {
+		t.Fatalf("index corrupt session: %v", err)
+	}
+
+	_, err := store.List(context.Background(), testUserID)
+	if !errors.Is(err, ErrCorruptSession) {
+		t.Fatalf("expected ErrCorruptSession, got %v", err)
+	}
+}
