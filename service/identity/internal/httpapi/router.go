@@ -22,6 +22,7 @@ func NewRouter(
 	cache *redis.Client,
 	signupExecutor SignupExecutor,
 	loginExecutor LoginExecutor,
+	refreshExecutor RefreshExecutor,
 	verifyEmailExecutor VerifyEmailExecutor,
 	resendVerificationExecutor ResendVerificationExecutor,
 ) http.Handler {
@@ -45,6 +46,11 @@ func NewRouter(
 	mux.HandleFunc(
 		"POST /v1/auth/login",
 		loginHandler(logger, loginExecutor),
+	)
+
+	mux.HandleFunc(
+		"POST /v1/auth/refresh",
+		refreshHandler(logger, refreshExecutor),
 	)
 
 	mux.HandleFunc(

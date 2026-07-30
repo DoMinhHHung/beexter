@@ -57,7 +57,6 @@ var (
 	ErrSignupRepositoryNotInitialized = errors.New(
 		"signup repository is not initialized",
 	)
-
 	ErrSignupRepositoryContextRequired = errors.New(
 		"signup repository context is required",
 	)
@@ -81,9 +80,7 @@ func NewSignupRepository(
 		return nil, ErrSignupRepositoryNotInitialized
 	}
 
-	return &SignupRepository{
-		database: database,
-	}, nil
+	return &SignupRepository{database: database}, nil
 }
 
 func (r *SignupRepository) Create(
@@ -110,7 +107,6 @@ func (r *SignupRepository) Create(
 	}
 
 	committed := false
-
 	defer func() {
 		if committed {
 			return
@@ -123,8 +119,7 @@ func (r *SignupRepository) Create(
 		defer cancelRollback()
 
 		rollbackErr := tx.Rollback(rollbackContext)
-		if rollbackErr == nil ||
-			errors.Is(rollbackErr, pgx.ErrTxClosed) {
+		if rollbackErr == nil || errors.Is(rollbackErr, pgx.ErrTxClosed) {
 			return
 		}
 
@@ -132,16 +127,12 @@ func (r *SignupRepository) Create(
 			"rollback signup transaction: %w",
 			rollbackErr,
 		)
-
 		if returnErr == nil {
 			returnErr = wrappedRollbackErr
 			return
 		}
 
-		returnErr = errors.Join(
-			returnErr,
-			wrappedRollbackErr,
-		)
+		returnErr = errors.Join(returnErr, wrappedRollbackErr)
 	}()
 
 	_, err = tx.Exec(
@@ -158,7 +149,6 @@ func (r *SignupRepository) Create(
 		if isIdentityEmailConflict(err) {
 			return appsignup.ErrEmailAlreadyExists
 		}
-
 		return fmt.Errorf("insert identity: %w", err)
 	}
 
@@ -171,18 +161,17 @@ func (r *SignupRepository) Create(
 		params.CreatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"insert email verification token: %w",
-			err,
-		)
+		return fmt.Errorf("insert email verification token: %w", err)
 	}
 
 	payload, err := json.Marshal(struct {
 		IdentityID string `json:"identity_id"`
 		TokenID    string `json:"token_id"`
+		Locale     string `json:"locale"`
 	}{
 		IdentityID: params.IdentityID.String(),
 		TokenID:    params.VerificationTokenID,
+		Locale:     params.Locale,
 	})
 	if err != nil {
 		return fmt.Errorf(
@@ -201,21 +190,14 @@ func (r *SignupRepository) Create(
 		params.CreatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"insert email verification outbox event: %w",
-			err,
-		)
+		return fmt.Errorf("insert email verification outbox event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf(
-			"commit signup transaction: %w",
-			err,
-		)
+		return fmt.Errorf("commit signup transaction: %w", err)
 	}
 
 	committed = true
-
 	return nil
 }
 
@@ -224,8 +206,7 @@ func isIdentityEmailConflict(err error) bool {
 
 	return errors.As(err, &postgresError) &&
 		postgresError.Code == uniqueViolationCode &&
-		postgresError.ConstraintName ==
-			identityEmailUniqueConstraint
+		postgresError.ConstraintName == identityEmailUniqueConstraint
 }
 
 var _ appsignup.Repository = (*SignupRepository)(nil)

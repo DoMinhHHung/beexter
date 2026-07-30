@@ -13,6 +13,7 @@ import (
 
 	loginapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
 	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
+	refreshapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
 	resendverificationapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/resendverification"
 	signupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
 	verifyemailapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
@@ -168,6 +169,11 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create login repository: %w", err)
 	}
 
+	refreshRepository, err := postgres.NewRefreshRepository(database)
+	if err != nil {
+		return fmt.Errorf("create refresh repository: %w", err)
+	}
+
 	verifyEmailRepository, err := postgres.NewVerifyEmailRepository(database)
 	if err != nil {
 		return fmt.Errorf("create verify-email repository: %w", err)
@@ -237,6 +243,18 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create login use case: %w", err)
 	}
 
+	refreshUseCase, err := refreshapp.New(
+		refreshRepository,
+		refreshTokenCodec,
+		accessTokenService,
+		sessionStore,
+		identifierGenerator,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("create refresh use case: %w", err)
+	}
+
 	verifyEmailUseCase, err := verifyemailapp.New(
 		verifyEmailRepository,
 		time.Now,
@@ -256,6 +274,11 @@ func run(logger *slog.Logger) error {
 			"create resend-verification use case: %w",
 			err,
 		)
+	}
+
+	emailCatalog, err := emaildelivery.NewCatalog()
+	if err != nil {
+		return fmt.Errorf("create email translation catalog: %w", err)
 	}
 
 	emailRenderer, err := emaildelivery.NewRenderer()
@@ -282,6 +305,7 @@ func run(logger *slog.Logger) error {
 	verificationMailer, err := emaildelivery.NewVerificationMailer(
 		smtpSender,
 		emailRenderer,
+		emailCatalog,
 		cfg.Email.VerificationURL,
 	)
 	if err != nil {
@@ -319,6 +343,7 @@ func run(logger *slog.Logger) error {
 		cache,
 		signupUseCase,
 		loginUseCase,
+		refreshUseCase,
 		verifyEmailUseCase,
 		resendVerificationUseCase,
 	)

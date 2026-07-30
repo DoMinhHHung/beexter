@@ -67,11 +67,9 @@ var (
 	ErrResendVerificationRepositoryNotInitialized = errors.New(
 		"resend-verification repository is not initialized",
 	)
-
 	ErrResendVerificationRepositoryContextRequired = errors.New(
 		"resend-verification repository context is required",
 	)
-
 	ErrResendVerificationStateConflict = errors.New(
 		"resend-verification state changed unexpectedly",
 	)
@@ -85,13 +83,10 @@ func NewResendVerificationRepository(
 	database transactionBeginner,
 ) (*ResendVerificationRepository, error) {
 	if database == nil {
-		return nil,
-			ErrResendVerificationRepositoryNotInitialized
+		return nil, ErrResendVerificationRepositoryNotInitialized
 	}
 
-	return &ResendVerificationRepository{
-		database: database,
-	}, nil
+	return &ResendVerificationRepository{database: database}, nil
 }
 
 func (r *ResendVerificationRepository) Resend(
@@ -114,32 +109,23 @@ func (r *ResendVerificationRepository) Resend(
 		},
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"begin resend-verification transaction: %w",
-			err,
-		)
+		return fmt.Errorf("begin resend-verification transaction: %w", err)
 	}
 
 	committed := false
-
 	defer func() {
 		if committed {
 			return
 		}
 
-		rollbackContext, cancelRollback :=
-			context.WithTimeout(
-				context.WithoutCancel(ctx),
-				transactionRollbackTimeout,
-			)
+		rollbackContext, cancelRollback := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			transactionRollbackTimeout,
+		)
 		defer cancelRollback()
 
 		rollbackErr := tx.Rollback(rollbackContext)
-		if rollbackErr == nil ||
-			errors.Is(
-				rollbackErr,
-				pgx.ErrTxClosed,
-			) {
+		if rollbackErr == nil || errors.Is(rollbackErr, pgx.ErrTxClosed) {
 			return
 		}
 
@@ -147,16 +133,12 @@ func (r *ResendVerificationRepository) Resend(
 			"rollback resend-verification transaction: %w",
 			rollbackErr,
 		)
-
 		if returnErr == nil {
 			returnErr = wrappedRollbackError
 			return
 		}
 
-		returnErr = errors.Join(
-			returnErr,
-			wrappedRollbackError,
-		)
+		returnErr = errors.Join(returnErr, wrappedRollbackError)
 	}()
 
 	var (
@@ -179,20 +161,13 @@ func (r *ResendVerificationRepository) Resend(
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
-
 	if err != nil {
-		return fmt.Errorf(
-			"select identity for verification resend: %w",
-			err,
-		)
+		return fmt.Errorf("select identity for verification resend: %w", err)
 	}
 
 	identityID, err := identity.ParseID(rawIdentityID)
 	if err != nil {
-		return fmt.Errorf(
-			"parse resend-verification identity ID: %w",
-			err,
-		)
+		return fmt.Errorf("parse resend-verification identity ID: %w", err)
 	}
 
 	standardUnverified :=
@@ -221,7 +196,6 @@ func (r *ResendVerificationRepository) Resend(
 				err,
 			)
 		}
-
 		if commandTag.RowsAffected() != 1 {
 			return ErrResendVerificationStateConflict
 		}
@@ -234,10 +208,7 @@ func (r *ResendVerificationRepository) Resend(
 		params.CreatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"revoke active email verification tokens: %w",
-			err,
-		)
+		return fmt.Errorf("revoke active email verification tokens: %w", err)
 	}
 
 	_, err = tx.Exec(
@@ -249,18 +220,17 @@ func (r *ResendVerificationRepository) Resend(
 		params.CreatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"insert resent email verification token: %w",
-			err,
-		)
+		return fmt.Errorf("insert resent email verification token: %w", err)
 	}
 
 	payload, err := json.Marshal(struct {
 		IdentityID string `json:"identity_id"`
 		TokenID    string `json:"token_id"`
+		Locale     string `json:"locale"`
 	}{
 		IdentityID: identityID.String(),
 		TokenID:    params.VerificationTokenID,
+		Locale:     params.Locale,
 	})
 	if err != nil {
 		return fmt.Errorf(
@@ -279,21 +249,14 @@ func (r *ResendVerificationRepository) Resend(
 		params.CreatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"insert verification resend outbox event: %w",
-			err,
-		)
+		return fmt.Errorf("insert verification resend outbox event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf(
-			"commit resend-verification transaction: %w",
-			err,
-		)
+		return fmt.Errorf("commit resend-verification transaction: %w", err)
 	}
 
 	committed = true
-
 	return nil
 }
 

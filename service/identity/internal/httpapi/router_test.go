@@ -18,6 +18,7 @@ func TestHealthHandler(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 
 	request := httptest.NewRequest(

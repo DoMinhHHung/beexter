@@ -42,72 +42,49 @@ func resendVerificationHandler(
 				r,
 				domain.WrapError(
 					domain.ErrInternal,
-					errors.New(
-						"resend-verification executor is not initialized",
-					),
+					errors.New("resend-verification executor is not initialized"),
 				),
 				logger,
 			)
-
 			return
 		}
 
 		var request resendVerificationRequest
-
-		if err := decodeJSONBody(
-			w,
-			r,
-			&request,
-		); err != nil {
+		if err := decodeJSONBody(w, r, &request); err != nil {
 			writeApplicationError(
 				w,
 				r,
-				domain.WrapError(
-					domain.ErrInvalidInput,
-					err,
-				),
+				domain.WrapError(domain.ErrInvalidInput, err),
 				logger,
 			)
-
 			return
 		}
 
-		requestID := requestIDFromContext(
-			r.Context(),
-		)
+		requestID := requestIDFromContext(r.Context())
 		if requestID == "" {
 			writeApplicationError(
 				w,
 				r,
 				domain.WrapError(
 					domain.ErrInternal,
-					errors.New(
-						"request ID is missing from context",
-					),
+					errors.New("request ID is missing from context"),
 				),
 				logger,
 			)
-
 			return
 		}
 
-		ipAddress, err := netip.ParseAddr(
-			remoteIP(r.RemoteAddr),
-		)
+		ipAddress, err := netip.ParseAddr(remoteIP(r.RemoteAddr))
 		if err != nil {
 			writeApplicationError(
 				w,
 				r,
 				domain.WrapError(
 					domain.ErrInternal,
-					fmt.Errorf(
-						"parse remote IP address: %w",
-						err,
-					),
+					fmt.Errorf("parse remote IP address: %w", err),
 				),
 				logger,
 			)
-
 			return
 		}
 
@@ -115,18 +92,13 @@ func resendVerificationHandler(
 			r.Context(),
 			appresendverification.Input{
 				Email:     request.Email,
+				Locale:    parseAcceptLanguage(r.Header.Get("Accept-Language")),
 				IPAddress: ipAddress.Unmap(),
 				RequestID: requestID,
 			},
 		)
 		if err != nil {
-			writeApplicationError(
-				w,
-				r,
-				err,
-				logger,
-			)
-
+			writeApplicationError(w, r, err, logger)
 			return
 		}
 

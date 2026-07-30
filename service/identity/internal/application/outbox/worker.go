@@ -12,25 +12,23 @@ import (
 	"strings"
 	"time"
 
+	domainlocale "github.com/DoMinhHHung/beexter/service/identity/internal/domain/locale"
 	"github.com/google/uuid"
 )
 
 const (
 	EventEmailVerificationRequested = "identity.email_verification_requested"
-
-	maxBatchSize       = 100
-	maxLastErrorLength = 1000
+	maxBatchSize                    = 100
+	maxLastErrorLength              = 1000
 )
 
 var (
 	ErrDependencyMissing = errors.New(
 		"outbox worker dependency is missing",
 	)
-
 	ErrInvalidConfig = errors.New(
 		"outbox worker configuration is invalid",
 	)
-
 	ErrDeliveryNotFound = errors.New(
 		"outbox delivery target was not found",
 	)
@@ -74,6 +72,7 @@ type VerificationMessage struct {
 	Recipient string
 	TokenID   string
 	ExpiresAt time.Time
+	Locale    string
 }
 
 type Repository interface {
@@ -289,7 +288,6 @@ func (w *Worker) processEmailVerification(
 		payload.IdentityID,
 		payload.TokenID,
 	)
-
 	cancelLoad()
 
 	if errors.Is(err, ErrDeliveryNotFound) {
@@ -302,16 +300,12 @@ func (w *Worker) processEmailVerification(
 			ctx,
 			event,
 			lockID,
-			fmt.Errorf(
-				"load email verification delivery: %w",
-				err,
-			),
+			fmt.Errorf("load email verification delivery: %w", err),
 		)
 		return
 	}
 
 	now := w.now().UTC()
-
 	if delivery.UsedAt != nil ||
 		delivery.RevokedAt != nil ||
 		!delivery.ExpiresAt.After(now) {
@@ -331,9 +325,9 @@ func (w *Worker) processEmailVerification(
 			Recipient: delivery.Email,
 			TokenID:   payload.TokenID,
 			ExpiresAt: delivery.ExpiresAt,
+			Locale:    domainlocale.Normalize(payload.Locale),
 		},
 	)
-
 	cancelDelivery()
 
 	if err != nil {
@@ -341,10 +335,7 @@ func (w *Worker) processEmailVerification(
 			ctx,
 			event,
 			lockID,
-			fmt.Errorf(
-				"send email verification message: %w",
-				err,
-			),
+			fmt.Errorf("send email verification message: %w", err),
 		)
 		return
 	}
@@ -392,7 +383,6 @@ func (w *Worker) reschedule(
 	cause error,
 ) {
 	failedAttempt := event.AttemptCount + 1
-
 	delay := retryDelay(
 		failedAttempt,
 		w.config.RetryBase,
@@ -435,6 +425,7 @@ func (w *Worker) reschedule(
 type verificationPayload struct {
 	IdentityID string `json:"identity_id"`
 	TokenID    string `json:"token_id"`
+	Locale     string `json:"locale"`
 }
 
 func decodeVerificationPayload(
@@ -444,7 +435,6 @@ func decodeVerificationPayload(
 	decoder.DisallowUnknownFields()
 
 	var payload verificationPayload
-
 	if err := decoder.Decode(&payload); err != nil {
 		return verificationPayload{}, fmt.Errorf(
 			"decode email verification payload: %w",
@@ -453,7 +443,6 @@ func decodeVerificationPayload(
 	}
 
 	var trailingValue any
-
 	err := decoder.Decode(&trailingValue)
 	if !errors.Is(err, io.EOF) {
 		if err == nil {
@@ -482,6 +471,7 @@ func decodeVerificationPayload(
 		)
 	}
 
+	payload.Locale = domainlocale.Normalize(payload.Locale)
 	return payload, nil
 }
 
@@ -491,14 +481,10 @@ func validateUUIDV7(rawID string) error {
 		return fmt.Errorf("parse UUID: %w", err)
 	}
 
-	if parsedID.Version() != 7 {
-		return errors.New("UUID must be version 7")
-	}
-
-	if parsedID.String() != rawID {
-		return errors.New(
-			"UUID must use canonical lowercase representation",
-		)
+	if parsedID.Version() != 7 ||
+		parsedID.Variant() != uuid.RFC4122 ||
+		parsedID.String() != rawID {
+		return errors.New("UUID must be a canonical version 7 UUID")
 	}
 
 	return nil
@@ -514,16 +500,10 @@ func retryDelay(
 	}
 
 	delay := base
-
 	for currentAttempt := 1; currentAttempt < attempt; currentAttempt++ {
-		if delay >= maximum {
+		if delay >= maximum || delay > maximum/2 {
 			return maximum
 		}
-
-		if delay > maximum/2 {
-			return maximum
-		}
-
 		delay *= 2
 	}
 
@@ -540,17 +520,12 @@ func sanitizeError(err error) string {
 	}
 
 	message := strings.TrimSpace(err.Error())
-	message = strings.NewReplacer(
-		"\r", " ",
-		"\n", " ",
-	).Replace(message)
-
+	message = strings.NewReplacer("\r", " ", "\n", " ").Replace(message)
 	if message == "" {
 		return "unknown outbox delivery error"
 	}
 
 	runes := []rune(message)
-
 	if len(runes) > maxLastErrorLength {
 		runes = runes[:maxLastErrorLength]
 	}
@@ -566,8 +541,7 @@ func validateWorkerConfig(config WorkerConfig) error {
 			ErrInvalidConfig,
 		)
 
-	case config.BatchSize <= 0 ||
-		config.BatchSize > maxBatchSize:
+	case config.BatchSize <= 0 || config.BatchSize > maxBatchSize:
 		return fmt.Errorf(
 			"%w: batch size must be between 1 and %d",
 			ErrInvalidConfig,
@@ -605,11 +579,8 @@ func validateWorkerConfig(config WorkerConfig) error {
 		)
 	}
 
-	minimumLockTimeout :=
-		time.Duration(config.BatchSize) *
-			(config.DeliveryTimeout +
-				2*config.DatabaseTimeout)
-
+	minimumLockTimeout := time.Duration(config.BatchSize) *
+		(config.DeliveryTimeout + 2*config.DatabaseTimeout)
 	if config.LockTimeout <= minimumLockTimeout {
 		return fmt.Errorf(
 			"%w: lock timeout must exceed maximum batch processing time %s",

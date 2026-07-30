@@ -11,6 +11,7 @@ import (
 
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	domainlocale "github.com/DoMinhHHung/beexter/service/identity/internal/domain/locale"
 )
 
 const (
@@ -20,21 +21,15 @@ const (
 )
 
 var (
-	ErrDependencyMissing = errors.New(
-		"signup dependency is missing",
-	)
-
-	// ErrEmailAlreadyExists is returned by the persistence port when the
-	// database unique constraint rejects a duplicate normalized email.
-	ErrEmailAlreadyExists = errors.New(
-		"email already exists",
-	)
+	ErrDependencyMissing  = errors.New("signup dependency is missing")
+	ErrEmailAlreadyExists = errors.New("email already exists")
 )
 
 type Input struct {
 	Email     string
 	Password  string
 	Role      string
+	Locale    string
 	IPAddress netip.Addr
 	RequestID string
 }
@@ -53,6 +48,7 @@ type CreateParams struct {
 	PasswordHash               string
 	Role                       identity.Role
 	Status                     identity.Status
+	Locale                     string
 	CreatedAt                  time.Time
 	VerificationTokenExpiresAt time.Time
 	OutboxEventType            string
@@ -166,10 +162,7 @@ func (u *UseCase) Execute(
 
 	email, err := identity.NormalizeAndValidateEmail(input.Email)
 	if err != nil {
-		return Output{}, domain.WrapError(
-			domain.ErrInvalidInput,
-			err,
-		)
+		return Output{}, domain.WrapError(domain.ErrInvalidInput, err)
 	}
 
 	emailAllowed, err := u.rateLimiter.AllowSignupEmail(
@@ -189,18 +182,12 @@ func (u *UseCase) Execute(
 	}
 
 	if err := identity.ValidatePassword(input.Password); err != nil {
-		return Output{}, domain.WrapError(
-			domain.ErrInvalidInput,
-			err,
-		)
+		return Output{}, domain.WrapError(domain.ErrInvalidInput, err)
 	}
 
 	role, err := identity.ParsePublicRole(input.Role)
 	if err != nil {
-		return Output{}, domain.WrapError(
-			domain.ErrInvalidInput,
-			err,
-		)
+		return Output{}, domain.WrapError(domain.ErrInvalidInput, err)
 	}
 
 	passwordHash, err := u.hasher.Hash(input.Password)
@@ -223,10 +210,7 @@ func (u *UseCase) Execute(
 	if err != nil {
 		return Output{}, domain.WrapError(
 			domain.ErrInternal,
-			fmt.Errorf(
-				"generate verification token ID: %w",
-				err,
-			),
+			fmt.Errorf("generate verification token ID: %w", err),
 		)
 	}
 
@@ -256,6 +240,7 @@ func (u *UseCase) Execute(
 			PasswordHash:        passwordHash,
 			Role:                role,
 			Status:              identity.StatusActive,
+			Locale:              domainlocale.Normalize(input.Locale),
 			CreatedAt:           now,
 			VerificationTokenExpiresAt: now.Add(
 				emailVerificationTokenTTL,
@@ -265,9 +250,7 @@ func (u *UseCase) Execute(
 	)
 	if err != nil {
 		if errors.Is(err, ErrEmailAlreadyExists) {
-			return Output{}, domain.NewError(
-				domain.ErrEmailAlreadyExists,
-			)
+			return Output{}, domain.NewError(domain.ErrEmailAlreadyExists)
 		}
 
 		return Output{}, domain.WrapError(
@@ -276,9 +259,5 @@ func (u *UseCase) Execute(
 		)
 	}
 
-	return Output{
-		ID:    identityID,
-		Email: email,
-		Role:  role,
-	}, nil
+	return Output{ID: identityID, Email: email, Role: role}, nil
 }

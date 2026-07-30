@@ -4,18 +4,26 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
 )
 
-const (
-	testSecret   = "0123456789abcdef0123456789abcdef"
-	testUserID   = identity.ID("0198f124-659f-7cbd-a441-dc7eea175071")
-	testDeviceID = "0198f124-659f-7cbd-a441-dc7eea175072"
-	testTokenID  = "0198f124-659f-7cbd-a441-dc7eea175073"
+const testSecret = "0123456789abcdef0123456789abcdef"
+
+var codecTestNow = time.Date(
+	2026,
+	time.July,
+	30,
+	12,
+	0,
+	0,
+	0,
+	time.UTC,
 )
 
-func TestCodecEncodeAndDecode(t *testing.T) {
+func TestCodecRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	codec, err := New(testSecret)
@@ -23,20 +31,19 @@ func TestCodecEncodeAndDecode(t *testing.T) {
 		t.Fatalf("create codec: %v", err)
 	}
 
-	token, err := codec.Encode(testUserID, testDeviceID, testTokenID)
+	claims := validClaims()
+	rawToken, err := codec.Encode(claims)
 	if err != nil {
 		t.Fatalf("encode token: %v", err)
 	}
 
-	claims, err := codec.Decode(token)
+	decoded, err := codec.Decode(rawToken, codecTestNow)
 	if err != nil {
 		t.Fatalf("decode token: %v", err)
 	}
 
-	if claims.UserID != testUserID ||
-		claims.DeviceID != testDeviceID ||
-		claims.TokenID != testTokenID {
-		t.Fatalf("unexpected claims: %+v", claims)
+	if decoded != claims {
+		t.Fatalf("expected claims %+v, got %+v", claims, decoded)
 	}
 }
 
@@ -48,25 +55,69 @@ func TestCodecRejectsTampering(t *testing.T) {
 		t.Fatalf("create codec: %v", err)
 	}
 
-	token, err := codec.Encode(testUserID, testDeviceID, testTokenID)
+	rawToken, err := codec.Encode(validClaims())
 	if err != nil {
 		t.Fatalf("encode token: %v", err)
 	}
 
-	parts := strings.Split(token, ".")
-	parts[3] = "0198f124-659f-7cbd-a441-dc7eea175099"
+	parts := strings.Split(rawToken, ".")
+	parts[1] = parts[1] + "A"
 
-	_, err = codec.Decode(strings.Join(parts, "."))
-	if !errors.Is(err, ErrTokenInvalid) {
-		t.Fatalf("expected ErrTokenInvalid, got %v", err)
+	_, err = codec.Decode(strings.Join(parts, "."), codecTestNow)
+	if !errors.Is(err, appauth.ErrRefreshTokenInvalid) {
+		t.Fatalf("expected invalid-token error, got %v", err)
 	}
 }
 
-func TestCodecRequiresDistinctStrongSecret(t *testing.T) {
+func TestCodecRejectsExpiredToken(t *testing.T) {
 	t.Parallel()
 
-	_, err := New("short")
-	if !errors.Is(err, ErrInvalidSecret) {
-		t.Fatalf("expected ErrInvalidSecret, got %v", err)
+	codec, err := New(testSecret)
+	if err != nil {
+		t.Fatalf("create codec: %v", err)
+	}
+
+	rawToken, err := codec.Encode(validClaims())
+	if err != nil {
+		t.Fatalf("encode token: %v", err)
+	}
+
+	_, err = codec.Decode(
+		rawToken,
+		codecTestNow.Add(appauth.RefreshTokenTTL),
+	)
+	if !errors.Is(err, appauth.ErrRefreshTokenExpired) {
+		t.Fatalf("expected expired-token error, got %v", err)
+	}
+}
+
+func TestCodecRequiresFixedTTL(t *testing.T) {
+	t.Parallel()
+
+	codec, err := New(testSecret)
+	if err != nil {
+		t.Fatalf("create codec: %v", err)
+	}
+
+	claims := validClaims()
+	claims.ExpiresAt = claims.ExpiresAt.Add(time.Second)
+
+	_, err = codec.Encode(claims)
+	if !errors.Is(err, appauth.ErrRefreshTokenInvalid) {
+		t.Fatalf("expected invalid-token error, got %v", err)
+	}
+}
+
+func validClaims() appauth.RefreshTokenClaims {
+	return appauth.RefreshTokenClaims{
+		UserID: identity.ID(
+			"0198f124-659f-7cbd-a441-dc7eea175073",
+		),
+		DeviceID: "0198f124-659f-7cbd-a441-dc7eea175074",
+		TokenID:  "0198f124-659f-7cbd-a441-dc7eea175075",
+		IssuedAt: codecTestNow,
+		ExpiresAt: codecTestNow.Add(
+			appauth.RefreshTokenTTL,
+		),
 	}
 }

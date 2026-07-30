@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	applogin "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
+	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -16,19 +16,99 @@ import (
 
 const (
 	keyPrefix       = "refresh_token:"
+	indexKeyPrefix  = "refresh_token_index:"
 	refreshTokenTTL = 604800 * time.Second
 )
+
+const saveSessionScript = `
+redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2])
+redis.call("SADD", KEYS[2], KEYS[1])
+redis.call("PEXPIRE", KEYS[2], ARGV[2])
+return 1
+`
+
+const deleteSessionScript = `
+local deleted = redis.call("DEL", KEYS[1])
+redis.call("SREM", KEYS[2], KEYS[1])
+if redis.call("SCARD", KEYS[2]) == 0 then
+    redis.call("DEL", KEYS[2])
+end
+return deleted
+`
+
+const rotateSessionScript = `
+local function revoke_all()
+    local session_keys = redis.call("SMEMBERS", KEYS[2])
+    for _, session_key in ipairs(session_keys) do
+        redis.call("DEL", session_key)
+    end
+    redis.call("DEL", KEYS[2])
+end
+
+local raw_session = redis.call("GET", KEYS[1])
+if not raw_session then
+    revoke_all()
+    return 0
+end
+
+local decoded_ok, current = pcall(cjson.decode, raw_session)
+if not decoded_ok or type(current) ~= "table" then
+    revoke_all()
+    return -2
+end
+
+if current.token ~= ARGV[1]
+    or current.user_id ~= ARGV[2]
+    or current.device_id ~= ARGV[3] then
+    revoke_all()
+    return -1
+end
+
+current.token = ARGV[4]
+current.user_agent = ARGV[5]
+current.ip_address = ARGV[6]
+current.expires_at = ARGV[7]
+current.last_used_at = ARGV[8]
+
+redis.call(
+    "SET",
+    KEYS[1],
+    cjson.encode(current),
+    "PX",
+    ARGV[9]
+)
+redis.call("SADD", KEYS[2], KEYS[1])
+redis.call("PEXPIRE", KEYS[2], ARGV[9])
+return 1
+`
+
+const revokeAllSessionsScript = `
+local session_keys = redis.call("SMEMBERS", KEYS[1])
+local deleted = 0
+for _, session_key in ipairs(session_keys) do
+    deleted = deleted + redis.call("DEL", session_key)
+end
+redis.call("DEL", KEYS[1])
+return deleted
+`
 
 var (
 	ErrNotInitialized          = errors.New("session store is not initialized")
 	ErrInvalidContext          = errors.New("session context is required")
-	ErrInvalidOperationTimeout = errors.New("session operation timeout must be greater than zero")
-	ErrInvalidSession          = errors.New("refresh session is invalid")
+	ErrInvalidOperationTimeout = errors.New(
+		"session operation timeout must be greater than zero",
+	)
+	ErrInvalidSession = errors.New("refresh session is invalid")
+	ErrCorruptSession = errors.New("refresh session state is corrupt")
 )
 
 type Store struct {
 	client           *redis.Client
 	operationTimeout time.Duration
+	saveScript       *redis.Script
+	deleteScript     *redis.Script
+	rotateScript     *redis.Script
+	revokeAllScript  *redis.Script
 }
 
 type redisPayload struct {
@@ -57,37 +137,28 @@ func NewStore(
 	return &Store{
 		client:           client,
 		operationTimeout: operationTimeout,
+		saveScript:       redis.NewScript(saveSessionScript),
+		deleteScript:     redis.NewScript(deleteSessionScript),
+		rotateScript:     redis.NewScript(rotateSessionScript),
+		revokeAllScript:  redis.NewScript(revokeAllSessionsScript),
 	}, nil
 }
 
 func (s *Store) Save(
 	ctx context.Context,
-	session applogin.Session,
+	session appauth.Session,
 ) error {
-	if s == nil || s.client == nil {
-		return ErrNotInitialized
-	}
-
-	if ctx == nil {
-		return ErrInvalidContext
+	if err := s.validate(ctx); err != nil {
+		return err
 	}
 
 	if err := validateSession(session); err != nil {
 		return err
 	}
 
-	payload, err := json.Marshal(redisPayload{
-		Token:      session.Token,
-		UserID:     session.UserID.String(),
-		DeviceID:   session.DeviceID,
-		UserAgent:  session.UserAgent,
-		IPAddress:  session.IPAddress.Unmap().String(),
-		CreatedAt:  session.CreatedAt.UTC().Format(time.RFC3339),
-		ExpiresAt:  session.ExpiresAt.UTC().Format(time.RFC3339),
-		LastUsedAt: session.LastUsedAt.UTC().Format(time.RFC3339),
-	})
+	payload, err := marshalSession(session)
 	if err != nil {
-		return fmt.Errorf("marshal refresh session: %w", err)
+		return err
 	}
 
 	operationContext, cancelOperation := context.WithTimeout(
@@ -96,12 +167,16 @@ func (s *Store) Save(
 	)
 	defer cancelOperation()
 
-	if err := s.client.Set(
+	if _, err := s.saveScript.Run(
 		operationContext,
-		key(session.UserID, session.DeviceID),
+		s.client,
+		[]string{
+			key(session.UserID, session.DeviceID),
+			indexKey(session.UserID),
+		},
 		payload,
-		refreshTokenTTL,
-	).Err(); err != nil {
+		refreshTokenTTL.Milliseconds(),
+	).Result(); err != nil {
 		return fmt.Errorf("save refresh session in Redis: %w", err)
 	}
 
@@ -113,12 +188,8 @@ func (s *Store) Delete(
 	userID identity.ID,
 	deviceID string,
 ) error {
-	if s == nil || s.client == nil {
-		return ErrNotInitialized
-	}
-
-	if ctx == nil {
-		return ErrInvalidContext
+	if err := s.validate(ctx); err != nil {
+		return err
 	}
 
 	if userID.IsZero() || validateCanonicalUUIDV7(deviceID) != nil {
@@ -131,17 +202,143 @@ func (s *Store) Delete(
 	)
 	defer cancelOperation()
 
-	if err := s.client.Del(
+	if _, err := s.deleteScript.Run(
 		operationContext,
-		key(userID, deviceID),
-	).Err(); err != nil {
+		s.client,
+		[]string{
+			key(userID, deviceID),
+			indexKey(userID),
+		},
+	).Result(); err != nil {
 		return fmt.Errorf("delete refresh session from Redis: %w", err)
 	}
 
 	return nil
 }
 
-func validateSession(session applogin.Session) error {
+func (s *Store) Rotate(
+	ctx context.Context,
+	rotation appauth.Rotation,
+) error {
+	if err := s.validate(ctx); err != nil {
+		return err
+	}
+
+	if err := validateRotation(rotation); err != nil {
+		return err
+	}
+
+	operationContext, cancelOperation := context.WithTimeout(
+		ctx,
+		s.operationTimeout,
+	)
+	defer cancelOperation()
+
+	result, err := s.rotateScript.Run(
+		operationContext,
+		s.client,
+		[]string{
+			key(rotation.UserID, rotation.DeviceID),
+			indexKey(rotation.UserID),
+		},
+		rotation.PresentedTokenID,
+		rotation.UserID.String(),
+		rotation.DeviceID,
+		rotation.ReplacementTokenID,
+		rotation.UserAgent,
+		rotation.IPAddress.Unmap().String(),
+		rotation.ExpiresAt.UTC().Format(time.RFC3339),
+		rotation.LastUsedAt.UTC().Format(time.RFC3339),
+		refreshTokenTTL.Milliseconds(),
+	).Int64()
+	if err != nil {
+		return fmt.Errorf("rotate refresh session in Redis: %w", err)
+	}
+
+	switch result {
+	case 1:
+		return nil
+
+	case 0, -1:
+		return appauth.ErrRefreshTokenReuse
+
+	case -2:
+		return ErrCorruptSession
+
+	default:
+		return fmt.Errorf(
+			"%w: unexpected rotation result %d",
+			ErrCorruptSession,
+			result,
+		)
+	}
+}
+
+func (s *Store) RevokeAll(
+	ctx context.Context,
+	userID identity.ID,
+) error {
+	if err := s.validate(ctx); err != nil {
+		return err
+	}
+
+	if userID.IsZero() {
+		return ErrInvalidSession
+	}
+
+	operationContext, cancelOperation := context.WithTimeout(
+		ctx,
+		s.operationTimeout,
+	)
+	defer cancelOperation()
+
+	if _, err := s.revokeAllScript.Run(
+		operationContext,
+		s.client,
+		[]string{indexKey(userID)},
+	).Result(); err != nil {
+		return fmt.Errorf("revoke all refresh sessions in Redis: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Store) validate(ctx context.Context) error {
+	if s == nil ||
+		s.client == nil ||
+		s.saveScript == nil ||
+		s.deleteScript == nil ||
+		s.rotateScript == nil ||
+		s.revokeAllScript == nil {
+		return ErrNotInitialized
+	}
+
+	if ctx == nil {
+		return ErrInvalidContext
+	}
+
+	return nil
+}
+
+func marshalSession(session appauth.Session) ([]byte, error) {
+	payload, err := json.Marshal(redisPayload{
+		Token:      session.Token,
+		UserID:     session.UserID.String(),
+		DeviceID:   session.DeviceID,
+		UserAgent:  session.UserAgent,
+		IPAddress:  session.IPAddress.Unmap().String(),
+		CreatedAt:  session.CreatedAt.UTC().Format(time.RFC3339),
+		ExpiresAt:  session.ExpiresAt.UTC().Format(time.RFC3339),
+		LastUsedAt: session.LastUsedAt.UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal refresh session: %w", err)
+	}
+
+	return payload, nil
+}
+
+func validateSession(session appauth.Session) error {
 	if session.UserID.IsZero() ||
 		session.Token == "" ||
 		session.DeviceID == "" ||
@@ -153,11 +350,8 @@ func validateSession(session applogin.Session) error {
 		return ErrInvalidSession
 	}
 
-	if err := validateCanonicalUUIDV7(session.Token); err != nil {
-		return ErrInvalidSession
-	}
-
-	if err := validateCanonicalUUIDV7(session.DeviceID); err != nil {
+	if validateCanonicalUUIDV7(session.Token) != nil ||
+		validateCanonicalUUIDV7(session.DeviceID) != nil {
 		return ErrInvalidSession
 	}
 
@@ -174,13 +368,33 @@ func validateSession(session applogin.Session) error {
 	return nil
 }
 
+func validateRotation(rotation appauth.Rotation) error {
+	if rotation.UserID.IsZero() ||
+		strings.TrimSpace(rotation.UserAgent) == "" ||
+		!rotation.IPAddress.IsValid() ||
+		rotation.ExpiresAt.IsZero() ||
+		rotation.LastUsedAt.IsZero() ||
+		validateCanonicalUUIDV7(rotation.DeviceID) != nil ||
+		validateCanonicalUUIDV7(rotation.PresentedTokenID) != nil ||
+		validateCanonicalUUIDV7(rotation.ReplacementTokenID) != nil {
+		return ErrInvalidSession
+	}
+
+	lastUsedAt := rotation.LastUsedAt.UTC().Truncate(time.Second)
+	expiresAt := rotation.ExpiresAt.UTC().Truncate(time.Second)
+	if !expiresAt.Equal(lastUsedAt.Add(refreshTokenTTL)) {
+		return ErrInvalidSession
+	}
+
+	return nil
+}
+
 func key(userID identity.ID, deviceID string) string {
-	return fmt.Sprintf(
-		"%s%s:%s",
-		keyPrefix,
-		userID.String(),
-		deviceID,
-	)
+	return keyPrefix + userID.String() + ":" + deviceID
+}
+
+func indexKey(userID identity.ID) string {
+	return indexKeyPrefix + userID.String()
 }
 
 func validateCanonicalUUIDV7(rawID string) error {
@@ -197,5 +411,3 @@ func validateCanonicalUUIDV7(rawID string) error {
 
 	return nil
 }
-
-var _ applogin.SessionStore = (*Store)(nil)

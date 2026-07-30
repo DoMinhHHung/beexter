@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	applogin "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
+	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
 	"github.com/google/uuid"
 )
@@ -80,7 +80,7 @@ func New(secret string) (*HS256, error) {
 }
 
 func (s *HS256) Issue(
-	claims applogin.AccessTokenClaims,
+	claims appauth.AccessTokenClaims,
 ) (string, time.Time, error) {
 	if s == nil || len(s.secret) < minimumSecretLength {
 		return "", time.Time{}, ErrNotInitialized
@@ -290,4 +290,6 @@ func validateCanonicalUUIDV7(rawID string) error {
 	return nil
 }
 
-var _ applogin.AccessTokenIssuer = (*HS256)(nil)
+var _ interface {
+	Issue(appauth.AccessTokenClaims) (string, time.Time, error)
+} = (*HS256)(nil)

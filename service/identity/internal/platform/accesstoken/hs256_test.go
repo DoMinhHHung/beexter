@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	applogin "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
+	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
 )
 
@@ -39,7 +39,7 @@ func TestHS256IssueAndVerify(t *testing.T) {
 	}
 
 	token, expiresAt, err := service.Issue(
-		applogin.AccessTokenClaims{
+		appauth.AccessTokenClaims{
 			Subject:       testSubject,
 			Role:          identity.RoleClient,
 			EmailVerified: true,
@@ -77,7 +77,7 @@ func TestHS256RejectsExpiredToken(t *testing.T) {
 	}
 
 	token, _, err := service.Issue(
-		applogin.AccessTokenClaims{
+		appauth.AccessTokenClaims{
 			Subject:       testSubject,
 			Role:          identity.RoleClient,
 			EmailVerified: true,
@@ -104,7 +104,7 @@ func TestHS256RejectsAlternateAlgorithm(t *testing.T) {
 	}
 
 	token, _, err := service.Issue(
-		applogin.AccessTokenClaims{
+		appauth.AccessTokenClaims{
 			Subject:       testSubject,
 			Role:          identity.RoleClient,
 			EmailVerified: true,
@@ -136,7 +136,7 @@ func TestHS256RejectsTamperedPayload(t *testing.T) {
 	}
 
 	token, _, err := service.Issue(
-		applogin.AccessTokenClaims{
+		appauth.AccessTokenClaims{
 			Subject:       testSubject,
 			Role:          identity.RoleClient,
 			EmailVerified: true,

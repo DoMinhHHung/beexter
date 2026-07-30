@@ -1,0 +1,12 @@
+{
+  "Subject": "Verify your BeexSter email address",
+  "Title": "Verify your email address",
+  "Greeting": "Hello,",
+  "Message1": "Thank you for signing up for BeexSter.",
+  "Message2": "Please click the button below to verify your email address and complete your registration.",
+  "ButtonText": "Verify Email",
+  "ExpireMsg": "This link will expire at",
+  "FallbackMsg": "If the button doesn't work, please copy and paste the following link into your browser:",
+  "IgnoreMsg": "If you did not make this request, please safely ignore this email.",
+  "FooterRight": "All rights reserved."
+}

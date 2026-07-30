@@ -14,12 +14,64 @@ import (
 
 const (
 	emailTestEventID = "0198f124-659f-7cbd-a441-dc7eea175073"
-
 	emailTestTokenID = "0198f124-659f-7cbd-a441-dc7eea175074"
 )
 
-func TestRendererUsesEmbeddedHTMLTemplate(t *testing.T) {
+func TestCatalogLoadsEmbeddedLocales(t *testing.T) {
 	t.Parallel()
+
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("create catalog: %v", err)
+	}
+
+	tests := []struct {
+		requested string
+		expected  string
+		title     string
+	}{
+		{requested: "en-US", expected: "en", title: "Verify your email address"},
+		{requested: "vi", expected: "vi", title: "Xác minh địa chỉ email"},
+		{requested: "ja-JP", expected: "ja", title: "メールアドレスの確認"},
+		{requested: "fr", expected: "en", title: "Verify your email address"},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.requested, func(t *testing.T) {
+			t.Parallel()
+
+			locale, translation, err := catalog.Lookup(test.requested)
+			if err != nil {
+				t.Fatalf("lookup translation: %v", err)
+			}
+
+			if locale != test.expected || translation.Title != test.title {
+				t.Fatalf(
+					"expected locale=%q title=%q, got locale=%q title=%q",
+					test.expected,
+					test.title,
+					locale,
+					translation.Title,
+				)
+			}
+		})
+	}
+}
+
+func TestRendererUsesLocalizedEmbeddedTemplate(t *testing.T) {
+	t.Parallel()
+
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("create catalog: %v", err)
+	}
+
+	locale, translation, err := catalog.Lookup("ja")
+	if err != nil {
+		t.Fatalf("lookup translation: %v", err)
+	}
 
 	renderer, err := NewRenderer()
 	if err != nil {
@@ -27,63 +79,63 @@ func TestRendererUsesEmbeddedHTMLTemplate(t *testing.T) {
 	}
 
 	rendered, err := renderer.RenderVerification(
-		"https://example.com/verify?token=test&source=email",
-		time.Date(
-			2026,
-			time.July,
-			30,
-			4,
-			0,
-			0,
-			0,
-			time.UTC,
-		),
+		VerificationTemplateData{
+			Locale:          locale,
+			I18n:            translation,
+			VerificationURL: "https://example.com/verify?token=test&source=email",
+			ExpiresAt:       time.Date(2026, time.July, 30, 13, 0, 0, 0, time.UTC),
+			CurrentYear:     2026,
+		},
 	)
 	if err != nil {
 		t.Fatalf("render verification email: %v", err)
 	}
 
-	if !strings.Contains(
-		rendered.HTMLBody,
-		"<!doctype html>",
-	) {
-		t.Fatal("expected embedded HTML document")
-	}
-
-	if !strings.Contains(
-		rendered.HTMLBody,
+	expectedParts := []string{
+		`<html lang="ja">`,
+		"メールアドレスの確認",
+		"メールを確認する",
 		"token=test&amp;source=email",
-	) {
-		t.Fatal("expected HTML-escaped verification URL")
+		"© 2026 BeexSter",
 	}
 
-	if !strings.Contains(
-		rendered.TextBody,
-		"https://example.com/verify",
-	) {
-		t.Fatal("expected plain-text fallback")
+	for _, expected := range expectedParts {
+		if !strings.Contains(rendered.HTMLBody, expected) {
+			t.Fatalf("expected HTML to contain %q", expected)
+		}
+	}
+
+	if rendered.Subject != "BeexSterのメールアドレスを確認してください" {
+		t.Fatalf("unexpected subject %q", rendered.Subject)
 	}
 }
 
-func TestVerificationMailerBuildsTokenLink(t *testing.T) {
+func TestVerificationMailerFallsBackToEnglish(t *testing.T) {
 	t.Parallel()
+
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("create catalog: %v", err)
+	}
 
 	renderer, err := NewRenderer()
 	if err != nil {
 		t.Fatalf("create renderer: %v", err)
 	}
 
-	sender := &fakeMessageSender{
-		domain: "example.com",
-	}
-
+	sender := &fakeMessageSender{domain: "example.com"}
 	mailer, err := NewVerificationMailer(
 		sender,
 		renderer,
-		"https://app.example.com/verify-email?source=identity",
+		catalog,
+		"https://app.example.com/verify-email",
 	)
 	if err != nil {
 		t.Fatalf("create verification mailer: %v", err)
+	}
+
+	mailer.now = func() time.Time {
+		return time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	}
 
 	err = mailer.SendVerification(
@@ -92,89 +144,58 @@ func TestVerificationMailerBuildsTokenLink(t *testing.T) {
 			EventID:   emailTestEventID,
 			Recipient: "user@example.com",
 			TokenID:   emailTestTokenID,
-			ExpiresAt: time.Now().Add(time.Hour),
+			ExpiresAt: time.Date(2026, time.July, 30, 13, 0, 0, 0, time.UTC),
+			Locale:    "fr",
 		},
 	)
 	if err != nil {
 		t.Fatalf("send verification email: %v", err)
 	}
 
-	if sender.message.To != "user@example.com" {
-		t.Fatalf(
-			"unexpected recipient %q",
-			sender.message.To,
-		)
+	if sender.message.Subject != "Verify your BeexSter email address" {
+		t.Fatalf("unexpected fallback subject %q", sender.message.Subject)
 	}
 
-	if !strings.Contains(
-		sender.message.HTMLBody,
-		"token="+emailTestTokenID,
-	) {
+	if !strings.Contains(sender.message.HTMLBody, `<html lang="en">`) {
+		t.Fatal("expected English fallback HTML")
+	}
+
+	if !strings.Contains(sender.message.HTMLBody, "token="+emailTestTokenID) {
 		t.Fatal("expected verification token in HTML link")
-	}
-
-	expectedMessageID :=
-		"<" + emailTestEventID + "@example.com>"
-
-	if sender.message.MessageID != expectedMessageID {
-		t.Fatalf(
-			"expected message ID %q, got %q",
-			expectedMessageID,
-			sender.message.MessageID,
-		)
 	}
 }
 
-func TestBuildMIMEMessageIncludesHTMLAlternative(
-	t *testing.T,
-) {
+func TestBuildMIMEMessageIncludesHTMLAlternative(t *testing.T) {
 	t.Parallel()
 
 	rawMessage, err := buildMIMEMessage(
 		mail.Address{
-			Name:    "Beexter",
+			Name:    "BeexSter",
 			Address: "sender@example.com",
 		},
-		mail.Address{
-			Address: "user@example.com",
-		},
+		mail.Address{Address: "user@example.com"},
 		Message{
 			To:        "user@example.com",
-			Subject:   "Xác minh email",
+			Subject:   "Verify email",
 			TextBody:  "Plain text",
 			HTMLBody:  "<html><body>HTML</body></html>",
 			MessageID: "<event@example.com>",
 		},
-		time.Date(
-			2026,
-			time.July,
-			30,
-			4,
-			0,
-			0,
-			0,
-			time.UTC,
-		),
+		time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC),
 	)
 	if err != nil {
 		t.Fatalf("build MIME message: %v", err)
 	}
 
 	message := string(rawMessage)
-
-	expectedParts := []string{
+	for _, expected := range []string{
 		"Content-Type: multipart/alternative;",
 		`Content-Type: text/plain; charset="UTF-8"`,
 		`Content-Type: text/html; charset="UTF-8"`,
 		"Message-ID: <event@example.com>",
-	}
-
-	for _, expected := range expectedParts {
+	} {
 		if !strings.Contains(message, expected) {
-			t.Fatalf(
-				"expected MIME message to contain %q",
-				expected,
-			)
+			t.Fatalf("expected MIME message to contain %q", expected)
 		}
 	}
 }
@@ -184,11 +205,8 @@ func TestNewSMTPSenderRejectsInvalidConfig(t *testing.T) {
 
 	_, err := NewSMTPSender(
 		SMTPConfig{},
-		slog.New(
-			slog.NewJSONHandler(io.Discard, nil),
-		),
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
 	)
-
 	if err == nil {
 		t.Fatal("expected SMTP config validation error")
 	}

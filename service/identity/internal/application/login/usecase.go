@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
 )
@@ -19,7 +20,6 @@ const (
 	maxUserAgentLength    = 512
 	maxLoginPasswordRunes = 128
 	loginAuditTimeout     = 3 * time.Second
-	refreshTokenTTL       = 7 * 24 * time.Hour
 )
 
 var (
@@ -64,24 +64,11 @@ type Attempt struct {
 	AttemptedAt time.Time
 }
 
-type Session struct {
-	Token      string
-	UserID     identity.ID
-	DeviceID   string
-	UserAgent  string
-	IPAddress  netip.Addr
-	CreatedAt  time.Time
-	ExpiresAt  time.Time
-	LastUsedAt time.Time
-}
+type Session = appauth.Session
 
-type AccessTokenClaims struct {
-	Subject       identity.ID
-	Role          identity.Role
-	EmailVerified bool
-	IssuedAt      time.Time
-	JTI           string
-}
+type AccessTokenClaims = appauth.AccessTokenClaims
+
+type RefreshTokenClaims = appauth.RefreshTokenClaims
 
 type Repository interface {
 	FindByEmail(
@@ -127,11 +114,7 @@ type AccessTokenIssuer interface {
 }
 
 type RefreshTokenEncoder interface {
-	Encode(
-		userID identity.ID,
-		deviceID string,
-		tokenID string,
-	) (string, error)
+	Encode(claims appauth.RefreshTokenClaims) (string, error)
 }
 
 type SessionStore interface {
@@ -444,10 +427,16 @@ func (u *UseCase) Execute(
 		)
 	}
 
+	refreshExpiresAt := now.Add(appauth.RefreshTokenTTL)
+
 	refreshToken, err := u.refreshTokens.Encode(
-		account.ID,
-		deviceID,
-		refreshTokenID,
+		appauth.RefreshTokenClaims{
+			UserID:    account.ID,
+			DeviceID:  deviceID,
+			TokenID:   refreshTokenID,
+			IssuedAt:  now,
+			ExpiresAt: refreshExpiresAt,
+		},
 	)
 	if err != nil {
 		return u.fail(
@@ -457,8 +446,6 @@ func (u *UseCase) Execute(
 			fmt.Errorf("encode refresh token: %w", err),
 		)
 	}
-
-	refreshExpiresAt := now.Add(refreshTokenTTL)
 
 	session := Session{
 		Token:      refreshTokenID,

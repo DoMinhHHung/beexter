@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="vi">
+<html lang="{{.Locale}}">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Xác minh địa chỉ email – BeexSter</title>
+    <title>{{.I18n.Title}} – BeexSter</title>
 </head>
 <body style="margin:0;padding:0;background:#F7F3EB;font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#3F2E1F;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
@@ -12,7 +12,6 @@
         <td align="center">
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
                    style="max-width:600px;background:#FFFFFF;border-radius:8px;overflow:hidden;box-shadow:0 4px 16px rgba(63,46,31,0.08);">
-                
                 <tr>
                     <td style="padding:32px 40px;background:#F5B041;border-bottom:4px solid #D4A017;text-align:center;">
                         <div style="font-size:24px;font-weight:700;color:#FFFFFF;letter-spacing:1px;text-transform:uppercase;">
@@ -24,16 +23,19 @@
                 <tr>
                     <td style="padding:40px 40px 36px;">
                         <h1 style="margin:0 0 24px;font-size:22px;line-height:1.4;color:#3F2E1F;font-weight:700;text-align:center;">
-                            Xác minh địa chỉ email
+                            {{.I18n.Title}}
                         </h1>
 
                         <p style="margin:0 0 12px;font-size:15px;line-height:1.7;color:#4A3B2A;text-align:center;">
-                            Xin chào bạn,
+                            {{.I18n.Greeting}}
+                        </p>
+
+                        <p style="margin:0 0 12px;font-size:15px;line-height:1.7;color:#4A3B2A;text-align:center;">
+                            {{.I18n.Message1}}
                         </p>
 
                         <p style="margin:0 0 32px;font-size:15px;line-height:1.7;color:#4A3B2A;text-align:center;">
-                            Cảm ơn bạn đã đăng ký tài khoản BeexSter. <br>
-                            Vui lòng nhấn nút bên dưới để xác minh địa chỉ email và hoàn tất quá trình đăng ký.
+                            {{.I18n.Message2}}
                         </p>
 
                         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 32px;">
@@ -44,7 +46,7 @@
                                             <td style="border-radius:6px;background:#D4A017;">
                                                 <a href="{{.VerificationURL}}"
                                                    style="display:inline-block;padding:14px 32px;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:600;">
-                                                    Xác minh email
+                                                    {{.I18n.ButtonText}}
                                                 </a>
                                             </td>
                                         </tr>
@@ -54,11 +56,11 @@
                         </table>
 
                         <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#6B5B4B;text-align:center;">
-                            Liên kết sẽ hết hạn lúc <strong style="color:#3F2E1F;">{{.ExpiresAt}}</strong>.
+                            {{.I18n.ExpireMsg}} <strong style="color:#3F2E1F;">{{.ExpiresAt}}</strong>.
                         </p>
 
                         <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#6B5B4B;text-align:center;">
-                            Nếu nút không hoạt động, vui lòng sao chép đường dẫn sau vào trình duyệt:
+                            {{.I18n.FallbackMsg}}
                         </p>
 
                         <div style="background:#F7F3EB;padding:14px;border-radius:6px;margin:0 0 28px;text-align:center;">
@@ -72,7 +74,7 @@
                         <hr style="margin:0 0 24px;border:0;border-top:1px solid #EDE4D4;">
 
                         <p style="margin:0;font-size:13px;line-height:1.6;color:#8A7A6A;text-align:center;">
-                            Nếu bạn không thực hiện yêu cầu đăng ký này, vui lòng bỏ qua email.
+                            {{.I18n.IgnoreMsg}}
                         </p>
                     </td>
                 </tr>
@@ -80,7 +82,7 @@
                 <tr>
                     <td style="padding:24px 40px;background:#FAF6F0;border-top:1px solid #EDE4D4;text-align:center;">
                         <p style="margin:0;font-size:12px;color:#9A8A7A;line-height:1.5;">
-                            © 2026 BeexSter
+                            © {{.CurrentYear}} BeexSter. {{.I18n.FooterRight}}
                         </p>
                     </td>
                 </tr>

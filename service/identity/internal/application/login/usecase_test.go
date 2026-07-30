@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
 )
@@ -78,7 +79,7 @@ func TestUseCaseLogsInAndRecordsSuccess(t *testing.T) {
 	if savedSession.Token != testRefreshID ||
 		savedSession.UserID != testUserID ||
 		savedSession.DeviceID != testDeviceID ||
-		!savedSession.ExpiresAt.Equal(testNow.Add(7*24*time.Hour)) {
+		!savedSession.ExpiresAt.Equal(testNow.Add(appauth.RefreshTokenTTL)) {
 		t.Fatalf("unexpected saved session: %+v", savedSession)
 	}
 
@@ -386,13 +387,13 @@ func (*fakeAccessTokenIssuer) Issue(
 type fakeRefreshTokenEncoder struct{}
 
 func (*fakeRefreshTokenEncoder) Encode(
-	userID identity.ID,
-	deviceID string,
-	tokenID string,
+	claims appauth.RefreshTokenClaims,
 ) (string, error) {
-	if userID != testUserID ||
-		deviceID != testDeviceID ||
-		tokenID != testRefreshID {
+	if claims.UserID != testUserID ||
+		claims.DeviceID != testDeviceID ||
+		claims.TokenID != testRefreshID ||
+		!claims.IssuedAt.Equal(testNow) ||
+		!claims.ExpiresAt.Equal(testNow.Add(appauth.RefreshTokenTTL)) {
 		return "", errors.New("unexpected refresh-token claims")
 	}
 	return "refresh-token", nil

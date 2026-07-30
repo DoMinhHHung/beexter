@@ -11,14 +11,13 @@ import (
 
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	domainlocale "github.com/DoMinhHHung/beexter/service/identity/internal/domain/locale"
 )
 
 const (
-	verificationTokenTTL = time.Hour
-
+	verificationTokenTTL       = time.Hour
 	emailVerificationEventType = "identity.email_verification_requested"
-
-	maxRequestIDLength = 128
+	maxRequestIDLength         = 128
 )
 
 var ErrDependencyMissing = errors.New(
@@ -27,6 +26,7 @@ var ErrDependencyMissing = errors.New(
 
 type Input struct {
 	Email     string
+	Locale    string
 	IPAddress netip.Addr
 	RequestID string
 }
@@ -39,16 +39,14 @@ type CreateParams struct {
 	Email                      string
 	VerificationTokenID        string
 	OutboxEventID              string
+	Locale                     string
 	CreatedAt                  time.Time
 	VerificationTokenExpiresAt time.Time
 	OutboxEventType            string
 }
 
 type Repository interface {
-	Resend(
-		ctx context.Context,
-		params CreateParams,
-	) error
+	Resend(ctx context.Context, params CreateParams) error
 }
 
 type UUIDGenerator interface {
@@ -82,10 +80,7 @@ func New(
 	rateLimiter RateLimiter,
 	now func() time.Time,
 ) (*UseCase, error) {
-	if repository == nil ||
-		ids == nil ||
-		rateLimiter == nil ||
-		now == nil {
+	if repository == nil || ids == nil || rateLimiter == nil || now == nil {
 		return nil, ErrDependencyMissing
 	}
 
@@ -115,93 +110,60 @@ func (u *UseCase) Execute(
 	if ctx == nil {
 		return Output{}, domain.WrapError(
 			domain.ErrInternal,
-			errors.New(
-				"resend-verification context is required",
-			),
+			errors.New("resend-verification context is required"),
 		)
 	}
 
-	if !input.IPAddress.IsValid() {
-		return Output{}, domain.NewError(
-			domain.ErrInvalidInput,
-		)
-	}
-
-	if input.RequestID == "" ||
+	if !input.IPAddress.IsValid() ||
+		input.RequestID == "" ||
 		len(input.RequestID) > maxRequestIDLength ||
-		strings.IndexFunc(
-			input.RequestID,
-			unicode.IsSpace,
-		) >= 0 {
-		return Output{}, domain.NewError(
-			domain.ErrInvalidInput,
-		)
+		strings.IndexFunc(input.RequestID, unicode.IsSpace) >= 0 {
+		return Output{}, domain.NewError(domain.ErrInvalidInput)
 	}
 
 	ipAddress := input.IPAddress.Unmap()
-
-	ipAllowed, err :=
-		u.rateLimiter.AllowResendVerificationIP(
-			ctx,
-			input.RequestID,
-			ipAddress,
-		)
+	ipAllowed, err := u.rateLimiter.AllowResendVerificationIP(
+		ctx,
+		input.RequestID,
+		ipAddress,
+	)
 	if err != nil {
 		return Output{}, domain.WrapError(
 			domain.ErrInternal,
-			fmt.Errorf(
-				"check resend-verification IP rate limit: %w",
-				err,
-			),
+			fmt.Errorf("check resend-verification IP rate limit: %w", err),
 		)
 	}
 
 	if !ipAllowed {
-		return Output{}, domain.NewError(
-			domain.ErrRateLimited,
-		)
+		return Output{}, domain.NewError(domain.ErrRateLimited)
 	}
 
-	email, err := identity.NormalizeAndValidateEmail(
-		input.Email,
+	email, err := identity.NormalizeAndValidateEmail(input.Email)
+	if err != nil {
+		return Output{}, domain.WrapError(domain.ErrInvalidInput, err)
+	}
+
+	emailAllowed, err := u.rateLimiter.AllowResendVerificationEmail(
+		ctx,
+		input.RequestID,
+		email,
 	)
 	if err != nil {
 		return Output{}, domain.WrapError(
-			domain.ErrInvalidInput,
-			err,
-		)
-	}
-
-	emailAllowed, err :=
-		u.rateLimiter.AllowResendVerificationEmail(
-			ctx,
-			input.RequestID,
-			email,
-		)
-	if err != nil {
-		return Output{}, domain.WrapError(
 			domain.ErrInternal,
-			fmt.Errorf(
-				"check resend-verification email rate limit: %w",
-				err,
-			),
+			fmt.Errorf("check resend-verification email rate limit: %w", err),
 		)
 	}
 
 	if !emailAllowed {
-		return Output{}, domain.NewError(
-			domain.ErrRateLimited,
-		)
+		return Output{}, domain.NewError(domain.ErrRateLimited)
 	}
 
 	verificationTokenID, err := u.ids.GenerateString()
 	if err != nil {
 		return Output{}, domain.WrapError(
 			domain.ErrInternal,
-			fmt.Errorf(
-				"generate verification token ID: %w",
-				err,
-			),
+			fmt.Errorf("generate verification token ID: %w", err),
 		)
 	}
 
@@ -209,10 +171,7 @@ func (u *UseCase) Execute(
 	if err != nil {
 		return Output{}, domain.WrapError(
 			domain.ErrInternal,
-			fmt.Errorf(
-				"generate verification outbox event ID: %w",
-				err,
-			),
+			fmt.Errorf("generate verification outbox event ID: %w", err),
 		)
 	}
 
@@ -220,9 +179,7 @@ func (u *UseCase) Execute(
 	if now.IsZero() {
 		return Output{}, domain.WrapError(
 			domain.ErrInternal,
-			errors.New(
-				"resend-verification clock returned zero time",
-			),
+			errors.New("resend-verification clock returned zero time"),
 		)
 	}
 
@@ -232,6 +189,7 @@ func (u *UseCase) Execute(
 			Email:               email,
 			VerificationTokenID: verificationTokenID,
 			OutboxEventID:       outboxEventID,
+			Locale:              domainlocale.Normalize(input.Locale),
 			CreatedAt:           now,
 			VerificationTokenExpiresAt: now.Add(
 				verificationTokenTTL,
@@ -242,14 +200,9 @@ func (u *UseCase) Execute(
 	if err != nil {
 		return Output{}, domain.WrapError(
 			domain.ErrInternal,
-			fmt.Errorf(
-				"create verification resend request: %w",
-				err,
-			),
+			fmt.Errorf("create verification resend request: %w", err),
 		)
 	}
 
-	return Output{
-		Accepted: true,
-	}, nil
+	return Output{Accepted: true}, nil
 }

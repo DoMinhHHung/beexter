@@ -47,9 +47,7 @@ func signupHandler(
 				r,
 				domain.WrapError(
 					domain.ErrInternal,
-					errors.New(
-						"signup executor is not initialized",
-					),
+					errors.New("signup executor is not initialized"),
 				),
 				logger,
 			)
@@ -57,15 +55,11 @@ func signupHandler(
 		}
 
 		var request signupRequest
-
 		if err := decodeJSONBody(w, r, &request); err != nil {
 			writeApplicationError(
 				w,
 				r,
-				domain.WrapError(
-					domain.ErrInvalidInput,
-					err,
-				),
+				domain.WrapError(domain.ErrInvalidInput, err),
 				logger,
 			)
 			return
@@ -78,28 +72,21 @@ func signupHandler(
 				r,
 				domain.WrapError(
 					domain.ErrInternal,
-					errors.New(
-						"request ID is missing from context",
-					),
+					errors.New("request ID is missing from context"),
 				),
 				logger,
 			)
 			return
 		}
 
-		ipAddress, err := netip.ParseAddr(
-			remoteIP(r.RemoteAddr),
-		)
+		ipAddress, err := netip.ParseAddr(remoteIP(r.RemoteAddr))
 		if err != nil {
 			writeApplicationError(
 				w,
 				r,
 				domain.WrapError(
 					domain.ErrInternal,
-					fmt.Errorf(
-						"parse remote IP address: %w",
-						err,
-					),
+					fmt.Errorf("parse remote IP address: %w", err),
 				),
 				logger,
 			)
@@ -112,6 +99,7 @@ func signupHandler(
 				Email:     request.Email,
 				Password:  request.Password,
 				Role:      request.Role,
+				Locale:    parseAcceptLanguage(r.Header.Get("Accept-Language")),
 				IPAddress: ipAddress.Unmap(),
 				RequestID: requestID,
 			},
