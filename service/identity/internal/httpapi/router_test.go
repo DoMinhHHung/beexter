@@ -10,7 +10,7 @@ import (
 func TestHealthHandler(t *testing.T) {
 	t.Parallel()
 
-	handler := NewRouter(testLogger(), nil, nil)
+	handler := NewRouter(testLogger(), nil, nil, nil)
 
 	request := httptest.NewRequest(
 		http.MethodGet,

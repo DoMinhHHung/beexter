@@ -20,13 +20,20 @@ func NewRouter(
 	logger *slog.Logger,
 	database *pgxpool.Pool,
 	cache *redis.Client,
+	signupExecutor SignupExecutor,
 ) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", healthHandler(logger))
+
 	mux.HandleFunc(
 		"GET /ready",
 		readinessHandler(logger, database, cache),
+	)
+
+	mux.HandleFunc(
+		"POST /v1/auth/signup",
+		signupHandler(logger, signupExecutor),
 	)
 
 	return applyMiddleware(logger, mux)

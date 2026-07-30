@@ -11,17 +11,24 @@ import (
 	"syscall"
 	"time"
 
+	signupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/config"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/httpapi"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/idgen"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/passwordhash"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/postgres"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/ratelimit"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/redisclient"
 )
 
 func main() {
 	logger := slog.New(
-		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}),
+		slog.NewJSONHandler(
+			os.Stdout,
+			&slog.HandlerOptions{
+				Level: slog.LevelInfo,
+			},
+		),
 	)
 
 	if err := run(logger); err != nil {
@@ -39,17 +46,19 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	applicationContext, stopSignal := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
-	)
+	applicationContext, stopSignal :=
+		signal.NotifyContext(
+			context.Background(),
+			os.Interrupt,
+			syscall.SIGTERM,
+		)
 	defer stopSignal()
 
-	databaseContext, cancelDatabase := context.WithTimeout(
-		applicationContext,
-		cfg.PostgreSQL.ConnectTimeout,
-	)
+	databaseContext, cancelDatabase :=
+		context.WithTimeout(
+			applicationContext,
+			cfg.PostgreSQL.ConnectTimeout,
+		)
 
 	database, err := postgres.Open(
 		databaseContext,
@@ -62,12 +71,16 @@ func run(logger *slog.Logger) error {
 	}
 	defer database.Close()
 
-	redisContext, cancelRedis := context.WithTimeout(
-		applicationContext,
-		cfg.Redis.ConnectTimeout,
-	)
+	redisContext, cancelRedis :=
+		context.WithTimeout(
+			applicationContext,
+			cfg.Redis.ConnectTimeout,
+		)
 
-	cache, err := redisclient.Open(redisContext, cfg.Redis)
+	cache, err := redisclient.Open(
+		redisContext,
+		cfg.Redis,
+	)
 	cancelRedis()
 
 	if err != nil {
@@ -83,7 +96,78 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 
-	handler := httpapi.NewRouter(logger, database, cache)
+	rateLimitKeys, err := ratelimit.NewKeyBuilder(
+		cfg.RateLimit.KeySecret,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"create rate-limit key builder: %w",
+			err,
+		)
+	}
+
+	slidingWindowLimiter, err :=
+		ratelimit.NewSlidingWindow(
+			cache,
+			cfg.RateLimit.OperationTimeout,
+		)
+	if err != nil {
+		return fmt.Errorf(
+			"create sliding-window rate limiter: %w",
+			err,
+		)
+	}
+
+	signupLimiter, err := ratelimit.NewSignupLimiter(
+		slidingWindowLimiter,
+		rateLimitKeys,
+		ratelimit.SignupPolicy{
+			IPLimit:     cfg.RateLimit.Signup.IPLimit,
+			IPWindow:    cfg.RateLimit.Signup.IPWindow,
+			EmailLimit:  cfg.RateLimit.Signup.EmailLimit,
+			EmailWindow: cfg.RateLimit.Signup.EmailWindow,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"create signup rate limiter: %w",
+			err,
+		)
+	}
+
+	signupRepository, err :=
+		postgres.NewSignupRepository(database)
+	if err != nil {
+		return fmt.Errorf(
+			"create signup repository: %w",
+			err,
+		)
+	}
+
+	passwordHasher := passwordhash.New()
+	identifierGenerator := idgen.NewUUIDV7()
+
+	signupUseCase, err := signupapp.New(
+		signupRepository,
+		passwordHasher,
+		identifierGenerator,
+		identifierGenerator,
+		signupLimiter,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"create signup use case: %w",
+			err,
+		)
+	}
+
+	handler := httpapi.NewRouter(
+		logger,
+		database,
+		cache,
+		signupUseCase,
+	)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,
@@ -111,34 +195,49 @@ func run(logger *slog.Logger) error {
 		logger.Info("shutdown signal received")
 
 	case err := <-serverError:
-		if err == nil || errors.Is(err, http.ErrServerClosed) {
+		if err == nil ||
+			errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 
 		return fmt.Errorf("serve HTTP: %w", err)
 	}
 
-	shutdownContext, cancelShutdown := context.WithTimeout(
-		context.Background(),
-		cfg.HTTP.ShutdownTimeout,
-	)
+	shutdownContext, cancelShutdown :=
+		context.WithTimeout(
+			context.Background(),
+			cfg.HTTP.ShutdownTimeout,
+		)
 	defer cancelShutdown()
 
 	if err := server.Shutdown(shutdownContext); err != nil {
 		closeErr := server.Close()
 		if closeErr != nil {
 			return errors.Join(
-				fmt.Errorf("shutdown HTTP server: %w", err),
-				fmt.Errorf("force close HTTP server: %w", closeErr),
+				fmt.Errorf(
+					"shutdown HTTP server: %w",
+					err,
+				),
+				fmt.Errorf(
+					"force close HTTP server: %w",
+					closeErr,
+				),
 			)
 		}
 
-		return fmt.Errorf("shutdown HTTP server: %w", err)
+		return fmt.Errorf(
+			"shutdown HTTP server: %w",
+			err,
+		)
 	}
 
 	serveErr := <-serverError
-	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-		return fmt.Errorf("HTTP server stopped unexpectedly: %w", serveErr)
+	if serveErr != nil &&
+		!errors.Is(serveErr, http.ErrServerClosed) {
+		return fmt.Errorf(
+			"HTTP server stopped unexpectedly: %w",
+			serveErr,
+		)
 	}
 
 	logger.Info("http server stopped gracefully")
