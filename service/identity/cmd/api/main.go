@@ -11,9 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
 	signupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/config"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/httpapi"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/emaildelivery"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/idgen"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/passwordhash"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/postgres"
@@ -46,13 +48,13 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	applicationContext, stopSignal :=
+	applicationContext, stopApplication :=
 		signal.NotifyContext(
 			context.Background(),
 			os.Interrupt,
 			syscall.SIGTERM,
 		)
-	defer stopSignal()
+	defer stopApplication()
 
 	databaseContext, cancelDatabase :=
 		context.WithTimeout(
@@ -64,6 +66,7 @@ func run(logger *slog.Logger) error {
 		databaseContext,
 		cfg.PostgreSQL.URL,
 	)
+
 	cancelDatabase()
 
 	if err != nil {
@@ -81,6 +84,7 @@ func run(logger *slog.Logger) error {
 		redisContext,
 		cfg.Redis,
 	)
+
 	cancelRedis()
 
 	if err != nil {
@@ -162,6 +166,78 @@ func run(logger *slog.Logger) error {
 		)
 	}
 
+	emailRenderer, err := emaildelivery.NewRenderer()
+	if err != nil {
+		return fmt.Errorf(
+			"create email renderer: %w",
+			err,
+		)
+	}
+
+	smtpSender, err := emaildelivery.NewSMTPSender(
+		emaildelivery.SMTPConfig{
+			Host:        cfg.Email.SMTPHost,
+			Port:        cfg.Email.SMTPPort,
+			Username:    cfg.Email.SMTPUsername,
+			AppPassword: cfg.Email.SMTPAppPassword,
+			FromName:    cfg.Email.SMTPFromName,
+			FromAddress: cfg.Email.SMTPFromAddress,
+			Timeout:     cfg.Email.SMTPTimeout,
+		},
+		logger,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"create SMTP sender: %w",
+			err,
+		)
+	}
+
+	verificationMailer, err :=
+		emaildelivery.NewVerificationMailer(
+			smtpSender,
+			emailRenderer,
+			cfg.Email.VerificationURL,
+		)
+	if err != nil {
+		return fmt.Errorf(
+			"create verification mailer: %w",
+			err,
+		)
+	}
+
+	outboxRepository, err :=
+		postgres.NewOutboxRepository(database)
+	if err != nil {
+		return fmt.Errorf(
+			"create outbox repository: %w",
+			err,
+		)
+	}
+
+	outboxWorker, err := outboxapp.NewWorker(
+		outboxRepository,
+		verificationMailer,
+		identifierGenerator,
+		logger,
+		outboxapp.WorkerConfig{
+			PollInterval:    cfg.Outbox.PollInterval,
+			BatchSize:       cfg.Outbox.BatchSize,
+			LockTimeout:     cfg.Outbox.LockTimeout,
+			DatabaseTimeout: cfg.Outbox.DatabaseTimeout,
+			DeliveryTimeout: cfg.Outbox.DeliveryTimeout,
+			RetryBase:       cfg.Outbox.RetryBase,
+			RetryMax:        cfg.Outbox.RetryMax,
+		},
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"create outbox worker: %w",
+			err,
+		)
+	}
+
 	handler := httpapi.NewRouter(
 		logger,
 		database,
@@ -178,6 +254,13 @@ func run(logger *slog.Logger) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	workerDone := make(chan struct{})
+
+	go func() {
+		defer close(workerDone)
+		outboxWorker.Run(applicationContext)
+	}()
+
 	serverError := make(chan error, 1)
 
 	go func() {
@@ -189,19 +272,28 @@ func run(logger *slog.Logger) error {
 		serverError <- server.ListenAndServe()
 	}()
 
+	var (
+		runErr               error
+		serverResultConsumed bool
+	)
+
 	select {
 	case <-applicationContext.Done():
-		stopSignal()
 		logger.Info("shutdown signal received")
 
 	case err := <-serverError:
-		if err == nil ||
-			errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
+		serverResultConsumed = true
 
-		return fmt.Errorf("serve HTTP: %w", err)
+		if err != nil &&
+			!errors.Is(err, http.ErrServerClosed) {
+			runErr = fmt.Errorf(
+				"serve HTTP: %w",
+				err,
+			)
+		}
 	}
+
+	stopApplication()
 
 	shutdownContext, cancelShutdown :=
 		context.WithTimeout(
@@ -212,35 +304,51 @@ func run(logger *slog.Logger) error {
 
 	if err := server.Shutdown(shutdownContext); err != nil {
 		closeErr := server.Close()
-		if closeErr != nil {
-			return errors.Join(
-				fmt.Errorf(
-					"shutdown HTTP server: %w",
-					err,
-				),
-				fmt.Errorf(
-					"force close HTTP server: %w",
-					closeErr,
-				),
-			)
-		}
 
-		return fmt.Errorf(
-			"shutdown HTTP server: %w",
-			err,
+		runErr = errors.Join(
+			runErr,
+			fmt.Errorf(
+				"shutdown HTTP server: %w",
+				err,
+			),
+			closeErr,
 		)
 	}
 
-	serveErr := <-serverError
-	if serveErr != nil &&
-		!errors.Is(serveErr, http.ErrServerClosed) {
-		return fmt.Errorf(
-			"HTTP server stopped unexpectedly: %w",
-			serveErr,
+	if !serverResultConsumed {
+		serveErr := <-serverError
+
+		if serveErr != nil &&
+			!errors.Is(serveErr, http.ErrServerClosed) {
+			runErr = errors.Join(
+				runErr,
+				fmt.Errorf(
+					"HTTP server stopped unexpectedly: %w",
+					serveErr,
+				),
+			)
+		}
+	}
+
+	workerShutdownTimer := time.NewTimer(
+		cfg.HTTP.ShutdownTimeout,
+	)
+	defer workerShutdownTimer.Stop()
+
+	select {
+	case <-workerDone:
+		logger.Info("outbox worker stopped gracefully")
+
+	case <-workerShutdownTimer.C:
+		runErr = errors.Join(
+			runErr,
+			errors.New(
+				"outbox worker shutdown timed out",
+			),
 		)
 	}
 
 	logger.Info("http server stopped gracefully")
 
-	return nil
+	return runErr
 }

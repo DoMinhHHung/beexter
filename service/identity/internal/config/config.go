@@ -16,12 +16,24 @@ const (
 	defaultRedisDB                = 0
 
 	defaultRateLimitOperationTimeout = 500 * time.Millisecond
+	defaultSignupIPLimit             = 5
+	defaultSignupIPWindow            = 15 * time.Minute
+	defaultSignupEmailLimit          = 3
+	defaultSignupEmailWindow         = time.Hour
+	minimumKeySecretByteLength       = 32
 
-	defaultSignupIPLimit       = 5
-	defaultSignupIPWindow      = 15 * time.Minute
-	defaultSignupEmailLimit    = 3
-	defaultSignupEmailWindow   = time.Hour
-	minimumKeySecretByteLength = 32
+	defaultSMTPHost     = "smtp.gmail.com"
+	defaultSMTPPort     = 587
+	defaultSMTPFromName = "Beexter"
+	defaultSMTPTimeout  = 10 * time.Second
+
+	defaultOutboxPollInterval    = 2 * time.Second
+	defaultOutboxBatchSize       = 10
+	defaultOutboxLockTimeout     = 5 * time.Minute
+	defaultOutboxDatabaseTimeout = 3 * time.Second
+	defaultOutboxDeliveryTimeout = 15 * time.Second
+	defaultOutboxRetryBase       = 5 * time.Second
+	defaultOutboxRetryMax        = time.Hour
 )
 
 type Config struct {
@@ -29,6 +41,8 @@ type Config struct {
 	PostgreSQL PostgreSQLConfig
 	Redis      RedisConfig
 	RateLimit  RateLimitConfig
+	Email      EmailConfig
+	Outbox     OutboxConfig
 }
 
 type HTTPConfig struct {
@@ -60,6 +74,27 @@ type SignupRateLimitConfig struct {
 	IPWindow    time.Duration
 	EmailLimit  int64
 	EmailWindow time.Duration
+}
+
+type EmailConfig struct {
+	SMTPHost        string
+	SMTPPort        int
+	SMTPUsername    string
+	SMTPAppPassword string
+	SMTPFromName    string
+	SMTPFromAddress string
+	SMTPTimeout     time.Duration
+	VerificationURL string
+}
+
+type OutboxConfig struct {
+	PollInterval    time.Duration
+	BatchSize       int
+	LockTimeout     time.Duration
+	DatabaseTimeout time.Duration
+	DeliveryTimeout time.Duration
+	RetryBase       time.Duration
+	RetryMax        time.Duration
 }
 
 func Load() (Config, error) {
@@ -177,12 +212,135 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	smtpHost := optionalString(
+		"SMTP_HOST",
+		defaultSMTPHost,
+	)
+
+	smtpPort, err := readPositiveInt(
+		"SMTP_PORT",
+		defaultSMTPPort,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	if smtpPort > 65535 {
+		return Config{}, fmt.Errorf(
+			"SMTP_PORT must not exceed 65535",
+		)
+	}
+
+	smtpUsername, err := requiredString("SMTP_USERNAME")
+	if err != nil {
+		return Config{}, err
+	}
+
+	smtpAppPassword, err := requiredRawString(
+		"SMTP_APP_PASSWORD",
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	smtpAppPassword = strings.ReplaceAll(
+		smtpAppPassword,
+		" ",
+		"",
+	)
+
+	if smtpAppPassword == "" {
+		return Config{}, fmt.Errorf(
+			"SMTP_APP_PASSWORD is required",
+		)
+	}
+
+	smtpFromName := optionalString(
+		"SMTP_FROM_NAME",
+		defaultSMTPFromName,
+	)
+
+	smtpFromAddress := strings.TrimSpace(
+		os.Getenv("SMTP_FROM_ADDRESS"),
+	)
+	if smtpFromAddress == "" {
+		smtpFromAddress = smtpUsername
+	}
+
+	smtpTimeout, err := readPositiveDuration(
+		"SMTP_TIMEOUT",
+		defaultSMTPTimeout,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	verificationURL, err := requiredString(
+		"EMAIL_VERIFICATION_URL",
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	outboxPollInterval, err := readPositiveDuration(
+		"OUTBOX_POLL_INTERVAL",
+		defaultOutboxPollInterval,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	outboxBatchSize, err := readPositiveInt(
+		"OUTBOX_BATCH_SIZE",
+		defaultOutboxBatchSize,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	outboxLockTimeout, err := readPositiveDuration(
+		"OUTBOX_LOCK_TIMEOUT",
+		defaultOutboxLockTimeout,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	outboxDatabaseTimeout, err := readPositiveDuration(
+		"OUTBOX_DATABASE_TIMEOUT",
+		defaultOutboxDatabaseTimeout,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	outboxDeliveryTimeout, err := readPositiveDuration(
+		"OUTBOX_DELIVERY_TIMEOUT",
+		defaultOutboxDeliveryTimeout,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	outboxRetryBase, err := readPositiveDuration(
+		"OUTBOX_RETRY_BASE",
+		defaultOutboxRetryBase,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	outboxRetryMax, err := readPositiveDuration(
+		"OUTBOX_RETRY_MAX",
+		defaultOutboxRetryMax,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		HTTP: HTTPConfig{
-			Addr: fmt.Sprintf(
-				":%d",
-				httpPort,
-			),
+			Addr:            fmt.Sprintf(":%d", httpPort),
 			ShutdownTimeout: shutdownTimeout,
 		},
 		PostgreSQL: PostgreSQLConfig{
@@ -202,15 +360,30 @@ func Load() (Config, error) {
 			KeySecret:        rateLimitKeySecret,
 			OperationTimeout: rateLimitOperationTimeout,
 			Signup: SignupRateLimitConfig{
-				IPLimit: int64(
-					signupIPLimit,
-				),
-				IPWindow: signupIPWindow,
-				EmailLimit: int64(
-					signupEmailLimit,
-				),
+				IPLimit:     int64(signupIPLimit),
+				IPWindow:    signupIPWindow,
+				EmailLimit:  int64(signupEmailLimit),
 				EmailWindow: signupEmailWindow,
 			},
+		},
+		Email: EmailConfig{
+			SMTPHost:        smtpHost,
+			SMTPPort:        smtpPort,
+			SMTPUsername:    smtpUsername,
+			SMTPAppPassword: smtpAppPassword,
+			SMTPFromName:    smtpFromName,
+			SMTPFromAddress: smtpFromAddress,
+			SMTPTimeout:     smtpTimeout,
+			VerificationURL: verificationURL,
+		},
+		Outbox: OutboxConfig{
+			PollInterval:    outboxPollInterval,
+			BatchSize:       outboxBatchSize,
+			LockTimeout:     outboxLockTimeout,
+			DatabaseTimeout: outboxDatabaseTimeout,
+			DeliveryTimeout: outboxDeliveryTimeout,
+			RetryBase:       outboxRetryBase,
+			RetryMax:        outboxRetryMax,
 		},
 	}, nil
 }
@@ -231,6 +404,18 @@ func requiredRawString(key string) (string, error) {
 	}
 
 	return value, nil
+}
+
+func optionalString(
+	key string,
+	fallback string,
+) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+
+	return value
 }
 
 func readPositiveInt(
