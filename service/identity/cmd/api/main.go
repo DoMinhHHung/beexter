@@ -12,6 +12,7 @@ import (
 	"time"
 
 	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
+	resendverificationapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/resendverification"
 	signupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
 	verifyemailapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/config"
@@ -134,24 +135,45 @@ func run(logger *slog.Logger) error {
 		slidingWindowLimiter,
 		rateLimitKeys,
 		ratelimit.SignupPolicy{
-			IPLimit: cfg.RateLimit.Signup.IPLimit,
-			IPWindow: cfg.
-				RateLimit.
-				Signup.
-				IPWindow,
-			EmailLimit: cfg.
-				RateLimit.
-				Signup.
-				EmailLimit,
-			EmailWindow: cfg.
-				RateLimit.
-				Signup.
-				EmailWindow,
+			IPLimit:     cfg.RateLimit.Signup.IPLimit,
+			IPWindow:    cfg.RateLimit.Signup.IPWindow,
+			EmailLimit:  cfg.RateLimit.Signup.EmailLimit,
+			EmailWindow: cfg.RateLimit.Signup.EmailWindow,
 		},
 	)
 	if err != nil {
 		return fmt.Errorf(
 			"create signup rate limiter: %w",
+			err,
+		)
+	}
+
+	resendVerificationLimiter, err :=
+		ratelimit.NewResendVerificationLimiter(
+			slidingWindowLimiter,
+			rateLimitKeys,
+			ratelimit.ResendVerificationPolicy{
+				IPLimit: cfg.
+					RateLimit.
+					ResendVerification.
+					IPLimit,
+				IPWindow: cfg.
+					RateLimit.
+					ResendVerification.
+					IPWindow,
+				EmailLimit: cfg.
+					RateLimit.
+					ResendVerification.
+					EmailLimit,
+				EmailWindow: cfg.
+					RateLimit.
+					ResendVerification.
+					EmailWindow,
+			},
+		)
+	if err != nil {
+		return fmt.Errorf(
+			"create resend-verification rate limiter: %w",
 			err,
 		)
 	}
@@ -170,6 +192,17 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf(
 			"create verify-email repository: %w",
+			err,
+		)
+	}
+
+	resendVerificationRepository, err :=
+		postgres.NewResendVerificationRepository(
+			database,
+		)
+	if err != nil {
+		return fmt.Errorf(
+			"create resend-verification repository: %w",
 			err,
 		)
 	}
@@ -203,6 +236,20 @@ func run(logger *slog.Logger) error {
 		)
 	}
 
+	resendVerificationUseCase, err :=
+		resendverificationapp.New(
+			resendVerificationRepository,
+			identifierGenerator,
+			resendVerificationLimiter,
+			time.Now,
+		)
+	if err != nil {
+		return fmt.Errorf(
+			"create resend-verification use case: %w",
+			err,
+		)
+	}
+
 	emailRenderer, err := emaildelivery.NewRenderer()
 	if err != nil {
 		return fmt.Errorf(
@@ -213,19 +260,13 @@ func run(logger *slog.Logger) error {
 
 	smtpSender, err := emaildelivery.NewSMTPSender(
 		emaildelivery.SMTPConfig{
-			Host: cfg.Email.SMTPHost,
-			Port: cfg.Email.SMTPPort,
-			Username: cfg.
-				Email.
-				SMTPUsername,
-			AppPassword: cfg.
-				Email.
-				SMTPAppPassword,
-			FromName: cfg.Email.SMTPFromName,
-			FromAddress: cfg.
-				Email.
-				SMTPFromAddress,
-			Timeout: cfg.Email.SMTPTimeout,
+			Host:        cfg.Email.SMTPHost,
+			Port:        cfg.Email.SMTPPort,
+			Username:    cfg.Email.SMTPUsername,
+			AppPassword: cfg.Email.SMTPAppPassword,
+			FromName:    cfg.Email.SMTPFromName,
+			FromAddress: cfg.Email.SMTPFromAddress,
+			Timeout:     cfg.Email.SMTPTimeout,
 		},
 		logger,
 	)
@@ -264,21 +305,13 @@ func run(logger *slog.Logger) error {
 		identifierGenerator,
 		logger,
 		outboxapp.WorkerConfig{
-			PollInterval: cfg.
-				Outbox.
-				PollInterval,
-			BatchSize: cfg.Outbox.BatchSize,
-			LockTimeout: cfg.
-				Outbox.
-				LockTimeout,
-			DatabaseTimeout: cfg.
-				Outbox.
-				DatabaseTimeout,
-			DeliveryTimeout: cfg.
-				Outbox.
-				DeliveryTimeout,
-			RetryBase: cfg.Outbox.RetryBase,
-			RetryMax:  cfg.Outbox.RetryMax,
+			PollInterval:    cfg.Outbox.PollInterval,
+			BatchSize:       cfg.Outbox.BatchSize,
+			LockTimeout:     cfg.Outbox.LockTimeout,
+			DatabaseTimeout: cfg.Outbox.DatabaseTimeout,
+			DeliveryTimeout: cfg.Outbox.DeliveryTimeout,
+			RetryBase:       cfg.Outbox.RetryBase,
+			RetryMax:        cfg.Outbox.RetryMax,
 		},
 		time.Now,
 	)
@@ -295,6 +328,7 @@ func run(logger *slog.Logger) error {
 		cache,
 		signupUseCase,
 		verifyEmailUseCase,
+		resendVerificationUseCase,
 	)
 
 	server := &http.Server{

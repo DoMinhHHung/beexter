@@ -22,6 +22,7 @@ func NewRouter(
 	cache *redis.Client,
 	signupExecutor SignupExecutor,
 	verifyEmailExecutor VerifyEmailExecutor,
+	resendVerificationExecutor ResendVerificationExecutor,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -52,6 +53,14 @@ func NewRouter(
 		verifyEmailHandler(
 			logger,
 			verifyEmailExecutor,
+		),
+	)
+
+	mux.HandleFunc(
+		"POST /v1/auth/resend-verification",
+		resendVerificationHandler(
+			logger,
+			resendVerificationExecutor,
 		),
 	)
 
@@ -106,7 +115,9 @@ func readinessHandler(
 				http.StatusServiceUnavailable,
 				"ERR_INTERNAL",
 				"service is not ready",
-				requestIDFromContext(r.Context()),
+				requestIDFromContext(
+					r.Context(),
+				),
 				logger,
 			)
 
@@ -131,7 +142,9 @@ func readinessHandler(
 				http.StatusServiceUnavailable,
 				"ERR_INTERNAL",
 				"service is not ready",
-				requestIDFromContext(r.Context()),
+				requestIDFromContext(
+					r.Context(),
+				),
 				logger,
 			)
 

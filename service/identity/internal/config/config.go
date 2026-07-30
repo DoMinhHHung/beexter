@@ -9,18 +9,26 @@ import (
 )
 
 const (
-	defaultHTTPPort               = 8080
-	defaultHTTPShutdownTimeout    = 10 * time.Second
+	defaultHTTPPort            = 8080
+	defaultHTTPShutdownTimeout = 10 * time.Second
+
 	defaultDatabaseConnectTimeout = 5 * time.Second
-	defaultRedisConnectTimeout    = 3 * time.Second
-	defaultRedisDB                = 0
+
+	defaultRedisConnectTimeout = 3 * time.Second
+	defaultRedisDB             = 0
 
 	defaultRateLimitOperationTimeout = 500 * time.Millisecond
-	defaultSignupIPLimit             = 5
-	defaultSignupIPWindow            = 15 * time.Minute
-	defaultSignupEmailLimit          = 3
-	defaultSignupEmailWindow         = time.Hour
 	minimumKeySecretByteLength       = 32
+
+	defaultSignupIPLimit     = 5
+	defaultSignupIPWindow    = 15 * time.Minute
+	defaultSignupEmailLimit  = 3
+	defaultSignupEmailWindow = time.Hour
+
+	defaultResendVerificationIPLimit     = 5
+	defaultResendVerificationIPWindow    = 15 * time.Minute
+	defaultResendVerificationEmailLimit  = 3
+	defaultResendVerificationEmailWindow = time.Hour
 
 	defaultSMTPHost     = "smtp.gmail.com"
 	defaultSMTPPort     = 587
@@ -64,12 +72,13 @@ type RedisConfig struct {
 }
 
 type RateLimitConfig struct {
-	KeySecret        string
-	OperationTimeout time.Duration
-	Signup           SignupRateLimitConfig
+	KeySecret          string
+	OperationTimeout   time.Duration
+	Signup             EmailIPRateLimitConfig
+	ResendVerification EmailIPRateLimitConfig
 }
 
-type SignupRateLimitConfig struct {
+type EmailIPRateLimitConfig struct {
 	IPLimit     int64
 	IPWindow    time.Duration
 	EmailLimit  int64
@@ -98,13 +107,60 @@ type OutboxConfig struct {
 }
 
 func Load() (Config, error) {
-	httpPort, err := readInt("HTTP_PORT", defaultHTTPPort)
+	httpConfig, err := loadHTTPConfig()
 	if err != nil {
-		return Config{}, fmt.Errorf("read HTTP_PORT: %w", err)
+		return Config{}, err
+	}
+
+	postgresConfig, err := loadPostgreSQLConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
+	redisConfig, err := loadRedisConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
+	rateLimitConfig, err := loadRateLimitConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
+	emailConfig, err := loadEmailConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
+	outboxConfig, err := loadOutboxConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
+	return Config{
+		HTTP:       httpConfig,
+		PostgreSQL: postgresConfig,
+		Redis:      redisConfig,
+		RateLimit:  rateLimitConfig,
+		Email:      emailConfig,
+		Outbox:     outboxConfig,
+	}, nil
+}
+
+func loadHTTPConfig() (HTTPConfig, error) {
+	httpPort, err := readInt(
+		"HTTP_PORT",
+		defaultHTTPPort,
+	)
+	if err != nil {
+		return HTTPConfig{}, fmt.Errorf(
+			"read HTTP_PORT: %w",
+			err,
+		)
 	}
 
 	if httpPort < 1 || httpPort > 65535 {
-		return Config{}, fmt.Errorf(
+		return HTTPConfig{}, fmt.Errorf(
 			"HTTP_PORT must be between 1 and 65535",
 		)
 	}
@@ -114,104 +170,189 @@ func Load() (Config, error) {
 		defaultHTTPShutdownTimeout,
 	)
 	if err != nil {
-		return Config{}, err
+		return HTTPConfig{}, err
 	}
 
-	databaseURL, err := requiredString("DATABASE_URL")
+	return HTTPConfig{
+		Addr: fmt.Sprintf(
+			":%d",
+			httpPort,
+		),
+		ShutdownTimeout: shutdownTimeout,
+	}, nil
+}
+
+func loadPostgreSQLConfig() (
+	PostgreSQLConfig,
+	error,
+) {
+	databaseURL, err := requiredString(
+		"DATABASE_URL",
+	)
 	if err != nil {
-		return Config{}, err
+		return PostgreSQLConfig{}, err
 	}
 
-	databaseConnectTimeout, err := readPositiveDuration(
+	connectTimeout, err := readPositiveDuration(
 		"DATABASE_CONNECT_TIMEOUT",
 		defaultDatabaseConnectTimeout,
 	)
 	if err != nil {
-		return Config{}, err
+		return PostgreSQLConfig{}, err
 	}
 
-	redisAddr, err := requiredString("REDIS_ADDR")
+	return PostgreSQLConfig{
+		URL:            databaseURL,
+		ConnectTimeout: connectTimeout,
+	}, nil
+}
+
+func loadRedisConfig() (RedisConfig, error) {
+	address, err := requiredString("REDIS_ADDR")
 	if err != nil {
-		return Config{}, err
+		return RedisConfig{}, err
 	}
 
-	redisDB, err := readInt("REDIS_DB", defaultRedisDB)
+	databaseNumber, err := readInt(
+		"REDIS_DB",
+		defaultRedisDB,
+	)
 	if err != nil {
-		return Config{}, fmt.Errorf(
+		return RedisConfig{}, fmt.Errorf(
 			"read REDIS_DB: %w",
 			err,
 		)
 	}
 
-	if redisDB < 0 {
-		return Config{}, fmt.Errorf(
+	if databaseNumber < 0 {
+		return RedisConfig{}, fmt.Errorf(
 			"REDIS_DB must not be negative",
 		)
 	}
 
-	redisConnectTimeout, err := readPositiveDuration(
+	connectTimeout, err := readPositiveDuration(
 		"REDIS_CONNECT_TIMEOUT",
 		defaultRedisConnectTimeout,
 	)
 	if err != nil {
-		return Config{}, err
+		return RedisConfig{}, err
 	}
 
-	rateLimitKeySecret, err := requiredRawString(
+	return RedisConfig{
+		Addr: address,
+		Username: strings.TrimSpace(
+			os.Getenv("REDIS_USERNAME"),
+		),
+		Password:       os.Getenv("REDIS_PASSWORD"),
+		DB:             databaseNumber,
+		ConnectTimeout: connectTimeout,
+	}, nil
+}
+
+func loadRateLimitConfig() (
+	RateLimitConfig,
+	error,
+) {
+	keySecret, err := requiredRawString(
 		"RATE_LIMIT_KEY_SECRET",
 	)
 	if err != nil {
-		return Config{}, err
+		return RateLimitConfig{}, err
 	}
 
-	if len(rateLimitKeySecret) < minimumKeySecretByteLength {
-		return Config{}, fmt.Errorf(
+	if len(keySecret) < minimumKeySecretByteLength {
+		return RateLimitConfig{}, fmt.Errorf(
 			"RATE_LIMIT_KEY_SECRET must contain at least %d bytes",
 			minimumKeySecretByteLength,
 		)
 	}
 
-	rateLimitOperationTimeout, err :=
-		readPositiveDuration(
-			"RATE_LIMIT_OPERATION_TIMEOUT",
-			defaultRateLimitOperationTimeout,
-		)
+	operationTimeout, err := readPositiveDuration(
+		"RATE_LIMIT_OPERATION_TIMEOUT",
+		defaultRateLimitOperationTimeout,
+	)
 	if err != nil {
-		return Config{}, err
+		return RateLimitConfig{}, err
 	}
 
-	signupIPLimit, err := readPositiveInt(
-		"SIGNUP_RATE_LIMIT_IP_REQUESTS",
+	signup, err := loadEmailIPRateLimit(
+		"SIGNUP_RATE_LIMIT",
 		defaultSignupIPLimit,
-	)
-	if err != nil {
-		return Config{}, err
-	}
-
-	signupIPWindow, err := readPositiveDuration(
-		"SIGNUP_RATE_LIMIT_IP_WINDOW",
 		defaultSignupIPWindow,
-	)
-	if err != nil {
-		return Config{}, err
-	}
-
-	signupEmailLimit, err := readPositiveInt(
-		"SIGNUP_RATE_LIMIT_EMAIL_REQUESTS",
 		defaultSignupEmailLimit,
-	)
-	if err != nil {
-		return Config{}, err
-	}
-
-	signupEmailWindow, err := readPositiveDuration(
-		"SIGNUP_RATE_LIMIT_EMAIL_WINDOW",
 		defaultSignupEmailWindow,
 	)
 	if err != nil {
-		return Config{}, err
+		return RateLimitConfig{}, err
 	}
 
+	resendVerification, err := loadEmailIPRateLimit(
+		"RESEND_VERIFICATION_RATE_LIMIT",
+		defaultResendVerificationIPLimit,
+		defaultResendVerificationIPWindow,
+		defaultResendVerificationEmailLimit,
+		defaultResendVerificationEmailWindow,
+	)
+	if err != nil {
+		return RateLimitConfig{}, err
+	}
+
+	return RateLimitConfig{
+		KeySecret:          keySecret,
+		OperationTimeout:   operationTimeout,
+		Signup:             signup,
+		ResendVerification: resendVerification,
+	}, nil
+}
+
+func loadEmailIPRateLimit(
+	prefix string,
+	defaultIPLimit int,
+	defaultIPWindow time.Duration,
+	defaultEmailLimit int,
+	defaultEmailWindow time.Duration,
+) (EmailIPRateLimitConfig, error) {
+	ipLimit, err := readPositiveInt(
+		prefix+"_IP_REQUESTS",
+		defaultIPLimit,
+	)
+	if err != nil {
+		return EmailIPRateLimitConfig{}, err
+	}
+
+	ipWindow, err := readPositiveDuration(
+		prefix+"_IP_WINDOW",
+		defaultIPWindow,
+	)
+	if err != nil {
+		return EmailIPRateLimitConfig{}, err
+	}
+
+	emailLimit, err := readPositiveInt(
+		prefix+"_EMAIL_REQUESTS",
+		defaultEmailLimit,
+	)
+	if err != nil {
+		return EmailIPRateLimitConfig{}, err
+	}
+
+	emailWindow, err := readPositiveDuration(
+		prefix+"_EMAIL_WINDOW",
+		defaultEmailWindow,
+	)
+	if err != nil {
+		return EmailIPRateLimitConfig{}, err
+	}
+
+	return EmailIPRateLimitConfig{
+		IPLimit:     int64(ipLimit),
+		IPWindow:    ipWindow,
+		EmailLimit:  int64(emailLimit),
+		EmailWindow: emailWindow,
+	}, nil
+}
+
+func loadEmailConfig() (EmailConfig, error) {
 	smtpHost := optionalString(
 		"SMTP_HOST",
 		defaultSMTPHost,
@@ -222,25 +363,27 @@ func Load() (Config, error) {
 		defaultSMTPPort,
 	)
 	if err != nil {
-		return Config{}, err
+		return EmailConfig{}, err
 	}
 
 	if smtpPort > 65535 {
-		return Config{}, fmt.Errorf(
+		return EmailConfig{}, fmt.Errorf(
 			"SMTP_PORT must not exceed 65535",
 		)
 	}
 
-	smtpUsername, err := requiredString("SMTP_USERNAME")
+	smtpUsername, err := requiredString(
+		"SMTP_USERNAME",
+	)
 	if err != nil {
-		return Config{}, err
+		return EmailConfig{}, err
 	}
 
 	smtpAppPassword, err := requiredRawString(
 		"SMTP_APP_PASSWORD",
 	)
 	if err != nil {
-		return Config{}, err
+		return EmailConfig{}, err
 	}
 
 	smtpAppPassword = strings.ReplaceAll(
@@ -248,17 +391,11 @@ func Load() (Config, error) {
 		" ",
 		"",
 	)
-
 	if smtpAppPassword == "" {
-		return Config{}, fmt.Errorf(
+		return EmailConfig{}, fmt.Errorf(
 			"SMTP_APP_PASSWORD is required",
 		)
 	}
-
-	smtpFromName := optionalString(
-		"SMTP_FROM_NAME",
-		defaultSMTPFromName,
-	)
 
 	smtpFromAddress := strings.TrimSpace(
 		os.Getenv("SMTP_FROM_ADDRESS"),
@@ -272,126 +409,108 @@ func Load() (Config, error) {
 		defaultSMTPTimeout,
 	)
 	if err != nil {
-		return Config{}, err
+		return EmailConfig{}, err
 	}
 
 	verificationURL, err := requiredString(
 		"EMAIL_VERIFICATION_URL",
 	)
 	if err != nil {
-		return Config{}, err
+		return EmailConfig{}, err
 	}
 
-	outboxPollInterval, err := readPositiveDuration(
+	return EmailConfig{
+		SMTPHost:        smtpHost,
+		SMTPPort:        smtpPort,
+		SMTPUsername:    smtpUsername,
+		SMTPAppPassword: smtpAppPassword,
+		SMTPFromName: optionalString(
+			"SMTP_FROM_NAME",
+			defaultSMTPFromName,
+		),
+		SMTPFromAddress: smtpFromAddress,
+		SMTPTimeout:     smtpTimeout,
+		VerificationURL: verificationURL,
+	}, nil
+}
+
+func loadOutboxConfig() (OutboxConfig, error) {
+	pollInterval, err := readPositiveDuration(
 		"OUTBOX_POLL_INTERVAL",
 		defaultOutboxPollInterval,
 	)
 	if err != nil {
-		return Config{}, err
+		return OutboxConfig{}, err
 	}
 
-	outboxBatchSize, err := readPositiveInt(
+	batchSize, err := readPositiveInt(
 		"OUTBOX_BATCH_SIZE",
 		defaultOutboxBatchSize,
 	)
 	if err != nil {
-		return Config{}, err
+		return OutboxConfig{}, err
 	}
 
-	outboxLockTimeout, err := readPositiveDuration(
+	lockTimeout, err := readPositiveDuration(
 		"OUTBOX_LOCK_TIMEOUT",
 		defaultOutboxLockTimeout,
 	)
 	if err != nil {
-		return Config{}, err
+		return OutboxConfig{}, err
 	}
 
-	outboxDatabaseTimeout, err := readPositiveDuration(
+	databaseTimeout, err := readPositiveDuration(
 		"OUTBOX_DATABASE_TIMEOUT",
 		defaultOutboxDatabaseTimeout,
 	)
 	if err != nil {
-		return Config{}, err
+		return OutboxConfig{}, err
 	}
 
-	outboxDeliveryTimeout, err := readPositiveDuration(
+	deliveryTimeout, err := readPositiveDuration(
 		"OUTBOX_DELIVERY_TIMEOUT",
 		defaultOutboxDeliveryTimeout,
 	)
 	if err != nil {
-		return Config{}, err
+		return OutboxConfig{}, err
 	}
 
-	outboxRetryBase, err := readPositiveDuration(
+	retryBase, err := readPositiveDuration(
 		"OUTBOX_RETRY_BASE",
 		defaultOutboxRetryBase,
 	)
 	if err != nil {
-		return Config{}, err
+		return OutboxConfig{}, err
 	}
 
-	outboxRetryMax, err := readPositiveDuration(
+	retryMax, err := readPositiveDuration(
 		"OUTBOX_RETRY_MAX",
 		defaultOutboxRetryMax,
 	)
 	if err != nil {
-		return Config{}, err
+		return OutboxConfig{}, err
 	}
 
-	return Config{
-		HTTP: HTTPConfig{
-			Addr:            fmt.Sprintf(":%d", httpPort),
-			ShutdownTimeout: shutdownTimeout,
-		},
-		PostgreSQL: PostgreSQLConfig{
-			URL:            databaseURL,
-			ConnectTimeout: databaseConnectTimeout,
-		},
-		Redis: RedisConfig{
-			Addr: redisAddr,
-			Username: strings.TrimSpace(
-				os.Getenv("REDIS_USERNAME"),
-			),
-			Password:       os.Getenv("REDIS_PASSWORD"),
-			DB:             redisDB,
-			ConnectTimeout: redisConnectTimeout,
-		},
-		RateLimit: RateLimitConfig{
-			KeySecret:        rateLimitKeySecret,
-			OperationTimeout: rateLimitOperationTimeout,
-			Signup: SignupRateLimitConfig{
-				IPLimit:     int64(signupIPLimit),
-				IPWindow:    signupIPWindow,
-				EmailLimit:  int64(signupEmailLimit),
-				EmailWindow: signupEmailWindow,
-			},
-		},
-		Email: EmailConfig{
-			SMTPHost:        smtpHost,
-			SMTPPort:        smtpPort,
-			SMTPUsername:    smtpUsername,
-			SMTPAppPassword: smtpAppPassword,
-			SMTPFromName:    smtpFromName,
-			SMTPFromAddress: smtpFromAddress,
-			SMTPTimeout:     smtpTimeout,
-			VerificationURL: verificationURL,
-		},
-		Outbox: OutboxConfig{
-			PollInterval:    outboxPollInterval,
-			BatchSize:       outboxBatchSize,
-			LockTimeout:     outboxLockTimeout,
-			DatabaseTimeout: outboxDatabaseTimeout,
-			DeliveryTimeout: outboxDeliveryTimeout,
-			RetryBase:       outboxRetryBase,
-			RetryMax:        outboxRetryMax,
-		},
+	return OutboxConfig{
+		PollInterval:    pollInterval,
+		BatchSize:       batchSize,
+		LockTimeout:     lockTimeout,
+		DatabaseTimeout: databaseTimeout,
+		DeliveryTimeout: deliveryTimeout,
+		RetryBase:       retryBase,
+		RetryMax:        retryMax,
 	}, nil
 }
 
 func requiredString(key string) (string, error) {
-	value := strings.TrimSpace(os.Getenv(key))
+	value := strings.TrimSpace(
+		os.Getenv(key),
+	)
 	if value == "" {
-		return "", fmt.Errorf("%s is required", key)
+		return "", fmt.Errorf(
+			"%s is required",
+			key,
+		)
 	}
 
 	return value, nil
@@ -400,7 +519,10 @@ func requiredString(key string) (string, error) {
 func requiredRawString(key string) (string, error) {
 	value := os.Getenv(key)
 	if value == "" {
-		return "", fmt.Errorf("%s is required", key)
+		return "", fmt.Errorf(
+			"%s is required",
+			key,
+		)
 	}
 
 	return value, nil
@@ -410,7 +532,9 @@ func optionalString(
 	key string,
 	fallback string,
 ) string {
-	value := strings.TrimSpace(os.Getenv(key))
+	value := strings.TrimSpace(
+		os.Getenv(key),
+	)
 	if value == "" {
 		return fallback
 	}
@@ -424,7 +548,11 @@ func readPositiveInt(
 ) (int, error) {
 	value, err := readInt(key, fallback)
 	if err != nil {
-		return 0, fmt.Errorf("read %s: %w", key, err)
+		return 0, fmt.Errorf(
+			"read %s: %w",
+			key,
+			err,
+		)
 	}
 
 	if value <= 0 {
@@ -437,8 +565,13 @@ func readPositiveInt(
 	return value, nil
 }
 
-func readInt(key string, fallback int) (int, error) {
-	value := strings.TrimSpace(os.Getenv(key))
+func readInt(
+	key string,
+	fallback int,
+) (int, error) {
+	value := strings.TrimSpace(
+		os.Getenv(key),
+	)
 	if value == "" {
 		return fallback, nil
 	}
@@ -459,7 +592,10 @@ func readPositiveDuration(
 	key string,
 	fallback time.Duration,
 ) (time.Duration, error) {
-	value, err := readDuration(key, fallback)
+	value, err := readDuration(
+		key,
+		fallback,
+	)
 	if err != nil {
 		return 0, fmt.Errorf(
 			"read %s: %w",
@@ -482,7 +618,9 @@ func readDuration(
 	key string,
 	fallback time.Duration,
 ) (time.Duration, error) {
-	value := strings.TrimSpace(os.Getenv(key))
+	value := strings.TrimSpace(
+		os.Getenv(key),
+	)
 	if value == "" {
 		return fallback, nil
 	}
