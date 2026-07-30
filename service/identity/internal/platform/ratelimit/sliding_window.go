@@ -18,47 +18,6 @@ const (
 	maxEventIDLength   = 128
 )
 
-// slidingWindowScript performs the entire read-modify-write sequence
-// atomically inside Redis.
-//
-// KEYS[1]:
-//
-//	Rate-limit sorted-set key.
-//
-// ARGV[1]:
-//
-//	Current Unix timestamp in milliseconds.
-//
-// ARGV[2]:
-//
-//	Sliding-window duration in milliseconds.
-//
-// ARGV[3]:
-//
-//	Maximum number of requests permitted in the window.
-//
-// ARGV[4]:
-//
-//	Unique event ID, normally the server-generated request ID.
-//
-// Return values:
-//
-//	[allowed, remaining, retry_after_milliseconds]
-//
-// allowed:
-//
-//	1 when the request is accepted.
-//	0 when the limit has been reached.
-//
-// remaining:
-//
-//	Number of requests remaining after an accepted request.
-//	Always 0 for a rejected request.
-//
-// retry_after_milliseconds:
-//
-//	Milliseconds until the oldest event leaves the window.
-//	Always 0 for an accepted request.
 const slidingWindowScript = `
 local key = KEYS[1]
 
@@ -75,6 +34,34 @@ redis.call(
     "-inf",
     cutoff_ms
 )
+
+-- A request may reach the limiter more than once because of application
+-- retries or duplicate middleware execution.
+--
+-- The server-generated event ID makes that repeated check idempotent:
+-- it returns the current decision without consuming another slot.
+local existing_score = redis.call(
+    "ZSCORE",
+    key,
+    event_id
+)
+
+if existing_score then
+    local current_count = redis.call("ZCARD", key)
+    local remaining = request_limit - current_count
+
+    if remaining < 0 then
+        remaining = 0
+    end
+
+    redis.call("PEXPIRE", key, window_ms)
+
+    return {
+        1,
+        remaining,
+        0
+    }
+end
 
 local current_count = redis.call("ZCARD", key)
 
@@ -100,7 +87,8 @@ if current_count >= request_limit then
         end
     end
 
-    -- Keep the key bounded even while abusive traffic continues.
+    -- Keep the key alive only as long as events in the current window
+    -- may still affect a future decision.
     redis.call("PEXPIRE", key, window_ms)
 
     return {
@@ -110,20 +98,15 @@ if current_count >= request_limit then
     }
 end
 
--- NX makes the operation idempotent if the same request ID is checked
--- more than once for the same rate-limit key.
 redis.call(
     "ZADD",
     key,
-    "NX",
     now_ms,
     event_id
 )
 
-current_count = redis.call("ZCARD", key)
+current_count = current_count + 1
 
--- The key expires after a full period without another check. This bounds
--- storage for subjects that stop sending requests.
 redis.call("PEXPIRE", key, window_ms)
 
 local remaining = request_limit - current_count
@@ -143,24 +126,31 @@ var (
 	ErrNotInitialized = errors.New(
 		"rate limiter is not initialized",
 	)
+
 	ErrInvalidContext = errors.New(
 		"rate limiter context is required",
 	)
+
 	ErrInvalidKey = errors.New(
 		"rate-limit key is invalid",
 	)
+
 	ErrInvalidEventID = errors.New(
 		"rate-limit event ID is invalid",
 	)
+
 	ErrInvalidLimit = errors.New(
 		"rate-limit request limit must be greater than zero",
 	)
+
 	ErrInvalidWindow = errors.New(
 		"rate-limit window must be greater than zero",
 	)
+
 	ErrInvalidOperationTimeout = errors.New(
 		"rate-limit operation timeout must be greater than zero",
 	)
+
 	ErrUnexpectedScriptResult = errors.New(
 		"unexpected rate-limit script result",
 	)
@@ -197,13 +187,6 @@ func NewSlidingWindow(
 	}, nil
 }
 
-// Allow checks and consumes one request from the given sliding window.
-//
-// Any returned error means no allow decision could be made safely.
-// Sensitive callers must fail closed and reject the request.
-//
-// eventID must uniquely identify the HTTP request. The request ID produced
-// by the HTTP middleware is suitable for this purpose.
 func (l *SlidingWindow) Allow(
 	ctx context.Context,
 	key string,
@@ -242,8 +225,6 @@ func (l *SlidingWindow) Allow(
 	)
 	defer cancel()
 
-	// Use Redis as the shared clock so separate application instances do not
-	// enforce windows using potentially different host clocks.
 	now, err := l.client.Time(operationContext).Result()
 	if err != nil {
 		return Result{}, fmt.Errorf(
@@ -277,8 +258,11 @@ func (l *SlidingWindow) Allow(
 }
 
 func validateKey(key string) error {
-	if len(key) <= len(rateLimitKeyPrefix) ||
-		len(key) > maxKeyLength {
+	if len(key) <= len(rateLimitKeyPrefix) {
+		return ErrInvalidKey
+	}
+
+	if len(key) > maxKeyLength {
 		return ErrInvalidKey
 	}
 
@@ -294,7 +278,11 @@ func validateKey(key string) error {
 }
 
 func validateEventID(eventID string) error {
-	if eventID == "" || len(eventID) > maxEventIDLength {
+	if eventID == "" {
+		return ErrInvalidEventID
+	}
+
+	if len(eventID) > maxEventIDLength {
 		return ErrInvalidEventID
 	}
 
@@ -350,9 +338,16 @@ func parseScriptResult(rawResult []any) (Result, error) {
 		)
 	}
 
-	if remaining < 0 || retryAfterMilliseconds < 0 {
+	if remaining < 0 {
 		return Result{}, fmt.Errorf(
-			"%w: negative numeric value",
+			"%w: remaining value is negative",
+			ErrUnexpectedScriptResult,
+		)
+	}
+
+	if retryAfterMilliseconds < 0 {
+		return Result{}, fmt.Errorf(
+			"%w: retry-after value is negative",
 			ErrUnexpectedScriptResult,
 		)
 	}
