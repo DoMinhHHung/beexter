@@ -14,21 +14,10 @@ import (
 	domainlocale "github.com/DoMinhHHung/beexter/service/identity/internal/domain/locale"
 )
 
-const defaultCatalogLocale = domainlocale.Default
+//go:embed locales/password_reset/*.json
+var embeddedPasswordResetLocales embed.FS
 
-//go:embed locales/verify_email/*.json
-var embeddedVerifyEmailLocales embed.FS
-
-var (
-	ErrCatalogNotInitialized = errors.New(
-		"email translation catalog is not initialized",
-	)
-	ErrInvalidTranslation = errors.New(
-		"email translation is invalid",
-	)
-)
-
-type VerifyEmailI18n struct {
+type PasswordResetI18n struct {
 	Subject     string `json:"Subject"`
 	Title       string `json:"Title"`
 	Greeting    string `json:"Greeting"`
@@ -41,24 +30,20 @@ type VerifyEmailI18n struct {
 	FooterRight string `json:"FooterRight"`
 }
 
-type Catalog struct {
-	translations  map[string]VerifyEmailI18n
+type PasswordResetCatalog struct {
+	translations  map[string]PasswordResetI18n
 	defaultLocale string
 }
 
-func NewCatalog() (*Catalog, error) {
-	const directory = "locales/verify_email"
+func NewPasswordResetCatalog() (*PasswordResetCatalog, error) {
+	const directory = "locales/password_reset"
 
-	entries, err := fs.ReadDir(embeddedVerifyEmailLocales, directory)
+	entries, err := fs.ReadDir(embeddedPasswordResetLocales, directory)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"read embedded verification-email locales: %w",
-			err,
-		)
+		return nil, fmt.Errorf("read embedded password-reset locales: %w", err)
 	}
 
-	translations := make(map[string]VerifyEmailI18n, len(entries))
-
+	translations := make(map[string]PasswordResetI18n, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
@@ -68,51 +53,47 @@ func NewCatalog() (*Catalog, error) {
 		locale, valid := domainlocale.ParseBase(rawLocale)
 		if !valid || locale != rawLocale {
 			return nil, fmt.Errorf(
-				"%w: locale filename %q must be a lowercase two-letter language code",
+				"%w: password-reset locale filename %q must be a lowercase two-letter language code",
 				ErrInvalidTranslation,
 				entry.Name(),
 			)
 		}
-
 		if _, exists := translations[locale]; exists {
 			return nil, fmt.Errorf(
-				"%w: duplicate locale %q",
+				"%w: duplicate password-reset locale %q",
 				ErrInvalidTranslation,
 				locale,
 			)
 		}
 
-		translation, err := readTranslation(
+		translation, err := readPasswordResetTranslation(
 			directory + "/" + entry.Name(),
 		)
 		if err != nil {
 			return nil, err
 		}
-
 		translations[locale] = translation
 	}
 
-	if _, exists := translations[defaultCatalogLocale]; !exists {
+	if _, exists := translations[domainlocale.Default]; !exists {
 		return nil, fmt.Errorf(
-			"%w: default locale %q is missing",
+			"%w: default password-reset locale %q is missing",
 			ErrInvalidTranslation,
-			defaultCatalogLocale,
+			domainlocale.Default,
 		)
 	}
 
-	return &Catalog{
+	return &PasswordResetCatalog{
 		translations:  translations,
-		defaultLocale: defaultCatalogLocale,
+		defaultLocale: domainlocale.Default,
 	}, nil
 }
 
-func (c *Catalog) Lookup(
+func (c *PasswordResetCatalog) Lookup(
 	requestedLocale string,
-) (string, VerifyEmailI18n, error) {
-	if c == nil ||
-		len(c.translations) == 0 ||
-		c.defaultLocale == "" {
-		return "", VerifyEmailI18n{}, ErrCatalogNotInitialized
+) (string, PasswordResetI18n, error) {
+	if c == nil || len(c.translations) == 0 || c.defaultLocale == "" {
+		return "", PasswordResetI18n{}, ErrCatalogNotInitialized
 	}
 
 	locale := domainlocale.Normalize(requestedLocale)
@@ -123,17 +104,18 @@ func (c *Catalog) Lookup(
 
 	translation, exists = c.translations[c.defaultLocale]
 	if !exists {
-		return "", VerifyEmailI18n{}, ErrCatalogNotInitialized
+		return "", PasswordResetI18n{}, ErrCatalogNotInitialized
 	}
-
 	return c.defaultLocale, translation, nil
 }
 
-func readTranslation(path string) (VerifyEmailI18n, error) {
-	rawTranslation, err := embeddedVerifyEmailLocales.ReadFile(path)
+func readPasswordResetTranslation(
+	path string,
+) (PasswordResetI18n, error) {
+	rawTranslation, err := embeddedPasswordResetLocales.ReadFile(path)
 	if err != nil {
-		return VerifyEmailI18n{}, fmt.Errorf(
-			"read embedded translation %s: %w",
+		return PasswordResetI18n{}, fmt.Errorf(
+			"read embedded password-reset translation %s: %w",
 			path,
 			err,
 		)
@@ -142,10 +124,10 @@ func readTranslation(path string) (VerifyEmailI18n, error) {
 	decoder := json.NewDecoder(bytes.NewReader(rawTranslation))
 	decoder.DisallowUnknownFields()
 
-	var translation VerifyEmailI18n
+	var translation PasswordResetI18n
 	if err := decoder.Decode(&translation); err != nil {
-		return VerifyEmailI18n{}, fmt.Errorf(
-			"decode embedded translation %s: %w",
+		return PasswordResetI18n{}, fmt.Errorf(
+			"decode embedded password-reset translation %s: %w",
 			path,
 			err,
 		)
@@ -154,23 +136,22 @@ func readTranslation(path string) (VerifyEmailI18n, error) {
 	var trailingValue any
 	if err := decoder.Decode(&trailingValue); !errors.Is(err, io.EOF) {
 		if err == nil {
-			return VerifyEmailI18n{}, fmt.Errorf(
-				"%w: translation %s contains multiple JSON values",
+			return PasswordResetI18n{}, fmt.Errorf(
+				"%w: password-reset translation %s contains multiple JSON values",
 				ErrInvalidTranslation,
 				path,
 			)
 		}
-
-		return VerifyEmailI18n{}, fmt.Errorf(
-			"decode trailing translation %s: %w",
+		return PasswordResetI18n{}, fmt.Errorf(
+			"decode trailing password-reset translation %s: %w",
 			path,
 			err,
 		)
 	}
 
-	if err := validateTranslation(translation); err != nil {
-		return VerifyEmailI18n{}, fmt.Errorf(
-			"%w: translation %s: %v",
+	if err := validatePasswordResetTranslation(translation); err != nil {
+		return PasswordResetI18n{}, fmt.Errorf(
+			"%w: password-reset translation %s: %v",
 			ErrInvalidTranslation,
 			path,
 			err,
@@ -180,7 +161,9 @@ func readTranslation(path string) (VerifyEmailI18n, error) {
 	return translation, nil
 }
 
-func validateTranslation(translation VerifyEmailI18n) error {
+func validatePasswordResetTranslation(
+	translation PasswordResetI18n,
+) error {
 	fields := map[string]string{
 		"Subject":     translation.Subject,
 		"Title":       translation.Title,
@@ -198,8 +181,7 @@ func validateTranslation(translation VerifyEmailI18n) error {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("field %s is required", fieldName)
 		}
-
-		if strings.ContainsAny(value, "\r\n") && fieldName == "Subject" {
+		if fieldName == "Subject" && strings.ContainsAny(value, "\r\n") {
 			return errors.New("Subject must not contain CR or LF")
 		}
 	}

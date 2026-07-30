@@ -18,6 +18,7 @@ import (
 
 const (
 	EventEmailVerificationRequested = "identity.email_verification_requested"
+	EventPasswordResetRequested     = "identity.password_reset_requested"
 	maxBatchSize                    = 100
 	maxLastErrorLength              = 1000
 )
@@ -67,7 +68,22 @@ type VerificationDelivery struct {
 	RevokedAt *time.Time
 }
 
+type PasswordResetDelivery struct {
+	Email     string
+	ExpiresAt time.Time
+	UsedAt    *time.Time
+	RevokedAt *time.Time
+}
+
 type VerificationMessage struct {
+	EventID   string
+	Recipient string
+	TokenID   string
+	ExpiresAt time.Time
+	Locale    string
+}
+
+type PasswordResetMessage struct {
 	EventID   string
 	Recipient string
 	TokenID   string
@@ -86,6 +102,12 @@ type Repository interface {
 		identityID string,
 		tokenID string,
 	) (VerificationDelivery, error)
+
+	LoadPasswordReset(
+		ctx context.Context,
+		identityID string,
+		tokenID string,
+	) (PasswordResetDelivery, error)
 
 	MarkProcessed(
 		ctx context.Context,
@@ -110,29 +132,39 @@ type VerificationMailer interface {
 	) error
 }
 
+type PasswordResetMailer interface {
+	SendPasswordReset(
+		ctx context.Context,
+		message PasswordResetMessage,
+	) error
+}
+
 type UUIDGenerator interface {
 	GenerateString() (string, error)
 }
 
 type Worker struct {
-	repository Repository
-	mailer     VerificationMailer
-	ids        UUIDGenerator
-	logger     *slog.Logger
-	config     WorkerConfig
-	now        func() time.Time
+	repository          Repository
+	verificationMailer  VerificationMailer
+	passwordResetMailer PasswordResetMailer
+	ids                 UUIDGenerator
+	logger              *slog.Logger
+	config              WorkerConfig
+	now                 func() time.Time
 }
 
 func NewWorker(
 	repository Repository,
-	mailer VerificationMailer,
+	verificationMailer VerificationMailer,
+	passwordResetMailer PasswordResetMailer,
 	ids UUIDGenerator,
 	logger *slog.Logger,
 	config WorkerConfig,
 	now func() time.Time,
 ) (*Worker, error) {
 	if repository == nil ||
-		mailer == nil ||
+		verificationMailer == nil ||
+		passwordResetMailer == nil ||
 		ids == nil ||
 		logger == nil ||
 		now == nil {
@@ -144,12 +176,13 @@ func NewWorker(
 	}
 
 	return &Worker{
-		repository: repository,
-		mailer:     mailer,
-		ids:        ids,
-		logger:     logger,
-		config:     config,
-		now:        now,
+		repository:          repository,
+		verificationMailer:  verificationMailer,
+		passwordResetMailer: passwordResetMailer,
+		ids:                 ids,
+		logger:              logger,
+		config:              config,
+		now:                 now,
 	}, nil
 }
 
@@ -165,7 +198,6 @@ func (w *Worker) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-
 		case <-timer.C:
 			w.processCycleSafely(ctx)
 			timer.Reset(w.config.PollInterval)
@@ -221,6 +253,7 @@ func (w *Worker) processCycle(ctx context.Context) {
 			Limit:       w.config.BatchSize,
 			EventTypes: []string{
 				EventEmailVerificationRequested,
+				EventPasswordResetRequested,
 			},
 		},
 	)
@@ -228,7 +261,6 @@ func (w *Worker) processCycle(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-
 		w.logger.Error(
 			"failed to claim outbox events",
 			slog.String("error", err.Error()),
@@ -240,7 +272,6 @@ func (w *Worker) processCycle(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-
 		w.processEvent(ctx, event, lockID)
 	}
 }
@@ -253,16 +284,14 @@ func (w *Worker) processEvent(
 	switch event.EventType {
 	case EventEmailVerificationRequested:
 		w.processEmailVerification(ctx, event, lockID)
-
+	case EventPasswordResetRequested:
+		w.processPasswordReset(ctx, event, lockID)
 	default:
 		w.reschedule(
 			ctx,
 			event,
 			lockID,
-			fmt.Errorf(
-				"unsupported outbox event type %q",
-				event.EventType,
-			),
+			fmt.Errorf("unsupported outbox event type %q", event.EventType),
 		)
 	}
 }
@@ -272,7 +301,7 @@ func (w *Worker) processEmailVerification(
 	event Event,
 	lockID string,
 ) {
-	payload, err := decodeVerificationPayload(event.Payload)
+	payload, err := decodeTokenEmailPayload(event.Payload, "email verification")
 	if err != nil {
 		w.reschedule(ctx, event, lockID, err)
 		return
@@ -282,7 +311,6 @@ func (w *Worker) processEmailVerification(
 		ctx,
 		w.config.DatabaseTimeout,
 	)
-
 	delivery, err := w.repository.LoadEmailVerification(
 		loadContext,
 		payload.IdentityID,
@@ -294,7 +322,6 @@ func (w *Worker) processEmailVerification(
 		w.markProcessed(ctx, event, lockID)
 		return
 	}
-
 	if err != nil {
 		w.reschedule(
 			ctx,
@@ -305,10 +332,12 @@ func (w *Worker) processEmailVerification(
 		return
 	}
 
-	now := w.now().UTC()
-	if delivery.UsedAt != nil ||
-		delivery.RevokedAt != nil ||
-		!delivery.ExpiresAt.After(now) {
+	if tokenDeliveryIsTerminal(
+		delivery.ExpiresAt,
+		delivery.UsedAt,
+		delivery.RevokedAt,
+		w.now().UTC(),
+	) {
 		w.markProcessed(ctx, event, lockID)
 		return
 	}
@@ -317,19 +346,17 @@ func (w *Worker) processEmailVerification(
 		ctx,
 		w.config.DeliveryTimeout,
 	)
-
-	err = w.mailer.SendVerification(
+	err = w.verificationMailer.SendVerification(
 		deliveryContext,
 		VerificationMessage{
 			EventID:   event.ID,
 			Recipient: delivery.Email,
 			TokenID:   payload.TokenID,
 			ExpiresAt: delivery.ExpiresAt,
-			Locale:    domainlocale.Normalize(payload.Locale),
+			Locale:    payload.Locale,
 		},
 	)
 	cancelDelivery()
-
 	if err != nil {
 		w.reschedule(
 			ctx,
@@ -341,6 +368,89 @@ func (w *Worker) processEmailVerification(
 	}
 
 	w.markProcessed(ctx, event, lockID)
+}
+
+func (w *Worker) processPasswordReset(
+	ctx context.Context,
+	event Event,
+	lockID string,
+) {
+	payload, err := decodeTokenEmailPayload(event.Payload, "password reset")
+	if err != nil {
+		w.reschedule(ctx, event, lockID, err)
+		return
+	}
+
+	loadContext, cancelLoad := context.WithTimeout(
+		ctx,
+		w.config.DatabaseTimeout,
+	)
+	delivery, err := w.repository.LoadPasswordReset(
+		loadContext,
+		payload.IdentityID,
+		payload.TokenID,
+	)
+	cancelLoad()
+
+	if errors.Is(err, ErrDeliveryNotFound) {
+		w.markProcessed(ctx, event, lockID)
+		return
+	}
+	if err != nil {
+		w.reschedule(
+			ctx,
+			event,
+			lockID,
+			fmt.Errorf("load password-reset delivery: %w", err),
+		)
+		return
+	}
+
+	if tokenDeliveryIsTerminal(
+		delivery.ExpiresAt,
+		delivery.UsedAt,
+		delivery.RevokedAt,
+		w.now().UTC(),
+	) {
+		w.markProcessed(ctx, event, lockID)
+		return
+	}
+
+	deliveryContext, cancelDelivery := context.WithTimeout(
+		ctx,
+		w.config.DeliveryTimeout,
+	)
+	err = w.passwordResetMailer.SendPasswordReset(
+		deliveryContext,
+		PasswordResetMessage{
+			EventID:   event.ID,
+			Recipient: delivery.Email,
+			TokenID:   payload.TokenID,
+			ExpiresAt: delivery.ExpiresAt,
+			Locale:    payload.Locale,
+		},
+	)
+	cancelDelivery()
+	if err != nil {
+		w.reschedule(
+			ctx,
+			event,
+			lockID,
+			fmt.Errorf("send password-reset message: %w", err),
+		)
+		return
+	}
+
+	w.markProcessed(ctx, event, lockID)
+}
+
+func tokenDeliveryIsTerminal(
+	expiresAt time.Time,
+	usedAt *time.Time,
+	revokedAt *time.Time,
+	now time.Time,
+) bool {
+	return usedAt != nil || revokedAt != nil || !expiresAt.After(now)
 }
 
 func (w *Worker) markProcessed(
@@ -422,22 +532,24 @@ func (w *Worker) reschedule(
 	)
 }
 
-type verificationPayload struct {
+type tokenEmailPayload struct {
 	IdentityID string `json:"identity_id"`
 	TokenID    string `json:"token_id"`
 	Locale     string `json:"locale"`
 }
 
-func decodeVerificationPayload(
+func decodeTokenEmailPayload(
 	rawPayload json.RawMessage,
-) (verificationPayload, error) {
+	payloadName string,
+) (tokenEmailPayload, error) {
 	decoder := json.NewDecoder(bytes.NewReader(rawPayload))
 	decoder.DisallowUnknownFields()
 
-	var payload verificationPayload
+	var payload tokenEmailPayload
 	if err := decoder.Decode(&payload); err != nil {
-		return verificationPayload{}, fmt.Errorf(
-			"decode email verification payload: %w",
+		return tokenEmailPayload{}, fmt.Errorf(
+			"decode %s payload: %w",
+			payloadName,
 			err,
 		)
 	}
@@ -446,26 +558,26 @@ func decodeVerificationPayload(
 	err := decoder.Decode(&trailingValue)
 	if !errors.Is(err, io.EOF) {
 		if err == nil {
-			return verificationPayload{}, errors.New(
-				"email verification payload contains multiple JSON values",
+			return tokenEmailPayload{}, fmt.Errorf(
+				"%s payload contains multiple JSON values",
+				payloadName,
 			)
 		}
-
-		return verificationPayload{}, fmt.Errorf(
-			"decode trailing email verification payload: %w",
+		return tokenEmailPayload{}, fmt.Errorf(
+			"decode trailing %s payload: %w",
+			payloadName,
 			err,
 		)
 	}
 
 	if err := validateUUIDV7(payload.IdentityID); err != nil {
-		return verificationPayload{}, fmt.Errorf(
+		return tokenEmailPayload{}, fmt.Errorf(
 			"validate payload identity ID: %w",
 			err,
 		)
 	}
-
 	if err := validateUUIDV7(payload.TokenID); err != nil {
-		return verificationPayload{}, fmt.Errorf(
+		return tokenEmailPayload{}, fmt.Errorf(
 			"validate payload token ID: %w",
 			err,
 		)
@@ -473,6 +585,12 @@ func decodeVerificationPayload(
 
 	payload.Locale = domainlocale.Normalize(payload.Locale)
 	return payload, nil
+}
+
+func decodeVerificationPayload(
+	rawPayload json.RawMessage,
+) (tokenEmailPayload, error) {
+	return decodeTokenEmailPayload(rawPayload, "email verification")
 }
 
 func validateUUIDV7(rawID string) error {
@@ -486,7 +604,6 @@ func validateUUIDV7(rawID string) error {
 		parsedID.String() != rawID {
 		return errors.New("UUID must be a canonical version 7 UUID")
 	}
-
 	return nil
 }
 
@@ -506,11 +623,9 @@ func retryDelay(
 		}
 		delay *= 2
 	}
-
 	if delay > maximum {
 		return maximum
 	}
-
 	return delay
 }
 
@@ -529,7 +644,6 @@ func sanitizeError(err error) string {
 	if len(runes) > maxLastErrorLength {
 		runes = runes[:maxLastErrorLength]
 	}
-
 	return string(runes)
 }
 
@@ -540,38 +654,32 @@ func validateWorkerConfig(config WorkerConfig) error {
 			"%w: poll interval must be positive",
 			ErrInvalidConfig,
 		)
-
 	case config.BatchSize <= 0 || config.BatchSize > maxBatchSize:
 		return fmt.Errorf(
 			"%w: batch size must be between 1 and %d",
 			ErrInvalidConfig,
 			maxBatchSize,
 		)
-
 	case config.LockTimeout <= 0:
 		return fmt.Errorf(
 			"%w: lock timeout must be positive",
 			ErrInvalidConfig,
 		)
-
 	case config.DatabaseTimeout <= 0:
 		return fmt.Errorf(
 			"%w: database timeout must be positive",
 			ErrInvalidConfig,
 		)
-
 	case config.DeliveryTimeout <= 0:
 		return fmt.Errorf(
 			"%w: delivery timeout must be positive",
 			ErrInvalidConfig,
 		)
-
 	case config.RetryBase <= 0:
 		return fmt.Errorf(
 			"%w: retry base must be positive",
 			ErrInvalidConfig,
 		)
-
 	case config.RetryMax < config.RetryBase:
 		return fmt.Errorf(
 			"%w: retry max must not be less than retry base",

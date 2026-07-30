@@ -59,6 +59,11 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
+	forgotPasswordConfig, err := config.LoadForgotPassword()
+	if err != nil {
+		return fmt.Errorf("load forgot-password config: %w", err)
+	}
+
 	applicationContext, stopApplication := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -303,6 +308,11 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create email translation catalog: %w", err)
 	}
 
+	passwordResetCatalog, err := emaildelivery.NewPasswordResetCatalog()
+	if err != nil {
+		return fmt.Errorf("create password-reset translation catalog: %w", err)
+	}
+
 	emailRenderer, err := emaildelivery.NewRenderer()
 	if err != nil {
 		return fmt.Errorf("create email renderer: %w", err)
@@ -334,6 +344,16 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create verification mailer: %w", err)
 	}
 
+	passwordResetMailer, err := emaildelivery.NewPasswordResetMailer(
+		smtpSender,
+		emailRenderer,
+		passwordResetCatalog,
+		forgotPasswordConfig.PasswordResetURL,
+	)
+	if err != nil {
+		return fmt.Errorf("create password-reset mailer: %w", err)
+	}
+
 	outboxRepository, err := postgres.NewOutboxRepository(database)
 	if err != nil {
 		return fmt.Errorf("create outbox repository: %w", err)
@@ -342,6 +362,7 @@ func run(logger *slog.Logger) error {
 	outboxWorker, err := outboxapp.NewWorker(
 		outboxRepository,
 		verificationMailer,
+		passwordResetMailer,
 		identifierGenerator,
 		logger,
 		outboxapp.WorkerConfig{

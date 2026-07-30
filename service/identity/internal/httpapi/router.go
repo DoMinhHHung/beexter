@@ -22,6 +22,7 @@ type RouterDependencies struct {
 	Refresh            RefreshExecutor
 	VerifyEmail        VerifyEmailExecutor
 	ResendVerification ResendVerificationExecutor
+	ForgotPassword     ForgotPasswordExecutor
 	Authenticator      Authenticator
 	Sessions           SessionManager
 }
@@ -70,6 +71,19 @@ func NewRouter(
 			logger,
 			dependencies.ResendVerification,
 		),
+	)
+
+	passwordResetRequestHandler := forgotPasswordHandler(
+		logger,
+		dependencies.ForgotPassword,
+	)
+	mux.HandleFunc(
+		"POST /v1/auth/forgot-password",
+		passwordResetRequestHandler,
+	)
+	mux.HandleFunc(
+		"POST /v1/auth/resend-password-reset",
+		passwordResetRequestHandler,
 	)
 
 	protected := func(handler http.Handler) http.Handler {
