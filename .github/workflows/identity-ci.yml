@@ -1,0 +1,65 @@
+name: Identity CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "service/identity/**"
+  push:
+    branches:
+      - main
+    paths:
+      - "service/identity/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: identity-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Format, vet, test, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: service/identity
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: service/identity/go.mod
+          cache-dependency-path: service/identity/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify module files
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "The following files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with race detector
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Build
+        run: go build ./...
