@@ -11,19 +11,25 @@ import (
 	"syscall"
 	"time"
 
+	loginapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
 	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
 	resendverificationapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/resendverification"
 	signupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
 	verifyemailapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/config"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/httpapi"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/accesstoken"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/emaildelivery"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/idgen"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/passwordhash"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/postgres"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/ratelimit"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/redisclient"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/refreshtoken"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/session"
 )
+
+const dummyLoginPassword = "BeexterDummyAuthentication1!"
 
 func main() {
 	logger := slog.New(
@@ -40,7 +46,6 @@ func main() {
 			"application stopped unexpectedly",
 			slog.String("error", err.Error()),
 		)
-
 		os.Exit(1)
 	}
 }
@@ -51,53 +56,37 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	applicationContext, stopApplication :=
-		signal.NotifyContext(
-			context.Background(),
-			os.Interrupt,
-			syscall.SIGTERM,
-		)
+	applicationContext, stopApplication := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
 	defer stopApplication()
 
-	databaseContext, cancelDatabase :=
-		context.WithTimeout(
-			applicationContext,
-			cfg.PostgreSQL.ConnectTimeout,
-		)
+	databaseContext, cancelDatabase := context.WithTimeout(
+		applicationContext,
+		cfg.PostgreSQL.ConnectTimeout,
+	)
 
 	database, err := postgres.Open(
 		databaseContext,
 		cfg.PostgreSQL.URL,
 	)
-
 	cancelDatabase()
-
 	if err != nil {
-		return fmt.Errorf(
-			"open PostgreSQL: %w",
-			err,
-		)
+		return fmt.Errorf("open PostgreSQL: %w", err)
 	}
 	defer database.Close()
 
-	redisContext, cancelRedis :=
-		context.WithTimeout(
-			applicationContext,
-			cfg.Redis.ConnectTimeout,
-		)
-
-	cache, err := redisclient.Open(
-		redisContext,
-		cfg.Redis,
+	redisContext, cancelRedis := context.WithTimeout(
+		applicationContext,
+		cfg.Redis.ConnectTimeout,
 	)
 
+	cache, err := redisclient.Open(redisContext, cfg.Redis)
 	cancelRedis()
-
 	if err != nil {
-		return fmt.Errorf(
-			"open Redis: %w",
-			err,
-		)
+		return fmt.Errorf("open Redis: %w", err)
 	}
 
 	defer func() {
@@ -113,22 +102,15 @@ func run(logger *slog.Logger) error {
 		cfg.RateLimit.KeySecret,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"create rate-limit key builder: %w",
-			err,
-		)
+		return fmt.Errorf("create rate-limit key builder: %w", err)
 	}
 
-	slidingWindowLimiter, err :=
-		ratelimit.NewSlidingWindow(
-			cache,
-			cfg.RateLimit.OperationTimeout,
-		)
+	slidingWindowLimiter, err := ratelimit.NewSlidingWindow(
+		cache,
+		cfg.RateLimit.OperationTimeout,
+	)
 	if err != nil {
-		return fmt.Errorf(
-			"create sliding-window rate limiter: %w",
-			err,
-		)
+		return fmt.Errorf("create sliding-window rate limiter: %w", err)
 	}
 
 	signupLimiter, err := ratelimit.NewSignupLimiter(
@@ -142,35 +124,33 @@ func run(logger *slog.Logger) error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"create signup rate limiter: %w",
-			err,
-		)
+		return fmt.Errorf("create signup rate limiter: %w", err)
 	}
 
-	resendVerificationLimiter, err :=
-		ratelimit.NewResendVerificationLimiter(
-			slidingWindowLimiter,
-			rateLimitKeys,
-			ratelimit.ResendVerificationPolicy{
-				IPLimit: cfg.
-					RateLimit.
-					ResendVerification.
-					IPLimit,
-				IPWindow: cfg.
-					RateLimit.
-					ResendVerification.
-					IPWindow,
-				EmailLimit: cfg.
-					RateLimit.
-					ResendVerification.
-					EmailLimit,
-				EmailWindow: cfg.
-					RateLimit.
-					ResendVerification.
-					EmailWindow,
-			},
-		)
+	loginLimiter, err := ratelimit.NewLoginLimiter(
+		slidingWindowLimiter,
+		rateLimitKeys,
+		ratelimit.LoginPolicy{
+			IPLimit:     cfg.RateLimit.Login.IPLimit,
+			IPWindow:    cfg.RateLimit.Login.IPWindow,
+			EmailLimit:  cfg.RateLimit.Login.EmailLimit,
+			EmailWindow: cfg.RateLimit.Login.EmailWindow,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("create login rate limiter: %w", err)
+	}
+
+	resendVerificationLimiter, err := ratelimit.NewResendVerificationLimiter(
+		slidingWindowLimiter,
+		rateLimitKeys,
+		ratelimit.ResendVerificationPolicy{
+			IPLimit:     cfg.RateLimit.ResendVerification.IPLimit,
+			IPWindow:    cfg.RateLimit.ResendVerification.IPWindow,
+			EmailLimit:  cfg.RateLimit.ResendVerification.EmailLimit,
+			EmailWindow: cfg.RateLimit.ResendVerification.EmailWindow,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf(
 			"create resend-verification rate limiter: %w",
@@ -178,28 +158,23 @@ func run(logger *slog.Logger) error {
 		)
 	}
 
-	signupRepository, err :=
-		postgres.NewSignupRepository(database)
+	signupRepository, err := postgres.NewSignupRepository(database)
 	if err != nil {
-		return fmt.Errorf(
-			"create signup repository: %w",
-			err,
-		)
+		return fmt.Errorf("create signup repository: %w", err)
 	}
 
-	verifyEmailRepository, err :=
-		postgres.NewVerifyEmailRepository(database)
+	loginRepository, err := postgres.NewLoginRepository(database)
 	if err != nil {
-		return fmt.Errorf(
-			"create verify-email repository: %w",
-			err,
-		)
+		return fmt.Errorf("create login repository: %w", err)
+	}
+
+	verifyEmailRepository, err := postgres.NewVerifyEmailRepository(database)
+	if err != nil {
+		return fmt.Errorf("create verify-email repository: %w", err)
 	}
 
 	resendVerificationRepository, err :=
-		postgres.NewResendVerificationRepository(
-			database,
-		)
+		postgres.NewResendVerificationRepository(database)
 	if err != nil {
 		return fmt.Errorf(
 			"create resend-verification repository: %w",
@@ -210,6 +185,31 @@ func run(logger *slog.Logger) error {
 	passwordHasher := passwordhash.New()
 	identifierGenerator := idgen.NewUUIDV7()
 
+	dummyPasswordHash, err := passwordHasher.Hash(dummyLoginPassword)
+	if err != nil {
+		return fmt.Errorf("create dummy login password hash: %w", err)
+	}
+
+	accessTokenService, err := accesstoken.New(cfg.Token.JWTSecret)
+	if err != nil {
+		return fmt.Errorf("create access-token service: %w", err)
+	}
+
+	refreshTokenCodec, err := refreshtoken.New(
+		cfg.Token.RefreshSecret,
+	)
+	if err != nil {
+		return fmt.Errorf("create refresh-token codec: %w", err)
+	}
+
+	sessionStore, err := session.NewStore(
+		cache,
+		cfg.Session.OperationTimeout,
+	)
+	if err != nil {
+		return fmt.Errorf("create session store: %w", err)
+	}
+
 	signupUseCase, err := signupapp.New(
 		signupRepository,
 		passwordHasher,
@@ -219,10 +219,22 @@ func run(logger *slog.Logger) error {
 		time.Now,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"create signup use case: %w",
-			err,
-		)
+		return fmt.Errorf("create signup use case: %w", err)
+	}
+
+	loginUseCase, err := loginapp.New(
+		loginRepository,
+		passwordHasher,
+		identifierGenerator,
+		loginLimiter,
+		accessTokenService,
+		refreshTokenCodec,
+		sessionStore,
+		dummyPasswordHash,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("create login use case: %w", err)
 	}
 
 	verifyEmailUseCase, err := verifyemailapp.New(
@@ -230,19 +242,15 @@ func run(logger *slog.Logger) error {
 		time.Now,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"create verify-email use case: %w",
-			err,
-		)
+		return fmt.Errorf("create verify-email use case: %w", err)
 	}
 
-	resendVerificationUseCase, err :=
-		resendverificationapp.New(
-			resendVerificationRepository,
-			identifierGenerator,
-			resendVerificationLimiter,
-			time.Now,
-		)
+	resendVerificationUseCase, err := resendverificationapp.New(
+		resendVerificationRepository,
+		identifierGenerator,
+		resendVerificationLimiter,
+		time.Now,
+	)
 	if err != nil {
 		return fmt.Errorf(
 			"create resend-verification use case: %w",
@@ -252,10 +260,7 @@ func run(logger *slog.Logger) error {
 
 	emailRenderer, err := emaildelivery.NewRenderer()
 	if err != nil {
-		return fmt.Errorf(
-			"create email renderer: %w",
-			err,
-		)
+		return fmt.Errorf("create email renderer: %w", err)
 	}
 
 	smtpSender, err := emaildelivery.NewSMTPSender(
@@ -271,32 +276,21 @@ func run(logger *slog.Logger) error {
 		logger,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"create SMTP sender: %w",
-			err,
-		)
+		return fmt.Errorf("create SMTP sender: %w", err)
 	}
 
-	verificationMailer, err :=
-		emaildelivery.NewVerificationMailer(
-			smtpSender,
-			emailRenderer,
-			cfg.Email.VerificationURL,
-		)
+	verificationMailer, err := emaildelivery.NewVerificationMailer(
+		smtpSender,
+		emailRenderer,
+		cfg.Email.VerificationURL,
+	)
 	if err != nil {
-		return fmt.Errorf(
-			"create verification mailer: %w",
-			err,
-		)
+		return fmt.Errorf("create verification mailer: %w", err)
 	}
 
-	outboxRepository, err :=
-		postgres.NewOutboxRepository(database)
+	outboxRepository, err := postgres.NewOutboxRepository(database)
 	if err != nil {
-		return fmt.Errorf(
-			"create outbox repository: %w",
-			err,
-		)
+		return fmt.Errorf("create outbox repository: %w", err)
 	}
 
 	outboxWorker, err := outboxapp.NewWorker(
@@ -316,10 +310,7 @@ func run(logger *slog.Logger) error {
 		time.Now,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"create outbox worker: %w",
-			err,
-		)
+		return fmt.Errorf("create outbox worker: %w", err)
 	}
 
 	handler := httpapi.NewRouter(
@@ -327,6 +318,7 @@ func run(logger *slog.Logger) error {
 		database,
 		cache,
 		signupUseCase,
+		loginUseCase,
 		verifyEmailUseCase,
 		resendVerificationUseCase,
 	)
@@ -341,24 +333,17 @@ func run(logger *slog.Logger) error {
 	}
 
 	workerDone := make(chan struct{})
-
 	go func() {
 		defer close(workerDone)
-
 		outboxWorker.Run(applicationContext)
 	}()
 
 	serverError := make(chan error, 1)
-
 	go func() {
 		logger.Info(
 			"http server started",
-			slog.String(
-				"address",
-				server.Addr,
-			),
+			slog.String("address", server.Addr),
 		)
-
 		serverError <- server.ListenAndServe()
 	}()
 
@@ -373,84 +358,52 @@ func run(logger *slog.Logger) error {
 
 	case err := <-serverError:
 		serverResultConsumed = true
-
-		if err != nil &&
-			!errors.Is(
-				err,
-				http.ErrServerClosed,
-			) {
-			runErr = fmt.Errorf(
-				"serve HTTP: %w",
-				err,
-			)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			runErr = fmt.Errorf("serve HTTP: %w", err)
 		}
 	}
 
 	stopApplication()
 
-	shutdownContext, cancelShutdown :=
-		context.WithTimeout(
-			context.Background(),
-			cfg.HTTP.ShutdownTimeout,
-		)
+	shutdownContext, cancelShutdown := context.WithTimeout(
+		context.Background(),
+		cfg.HTTP.ShutdownTimeout,
+	)
 	defer cancelShutdown()
 
-	if err := server.Shutdown(
-		shutdownContext,
-	); err != nil {
+	if err := server.Shutdown(shutdownContext); err != nil {
 		closeErr := server.Close()
-
 		runErr = errors.Join(
 			runErr,
-			fmt.Errorf(
-				"shutdown HTTP server: %w",
-				err,
-			),
+			fmt.Errorf("shutdown HTTP server: %w", err),
 			closeErr,
 		)
 	}
 
 	if !serverResultConsumed {
 		serveErr := <-serverError
-
-		if serveErr != nil &&
-			!errors.Is(
-				serveErr,
-				http.ErrServerClosed,
-			) {
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			runErr = errors.Join(
 				runErr,
-				fmt.Errorf(
-					"HTTP server stopped unexpectedly: %w",
-					serveErr,
-				),
+				fmt.Errorf("HTTP server stopped unexpectedly: %w", serveErr),
 			)
 		}
 	}
 
-	workerShutdownTimer := time.NewTimer(
-		cfg.HTTP.ShutdownTimeout,
-	)
+	workerShutdownTimer := time.NewTimer(cfg.HTTP.ShutdownTimeout)
 	defer workerShutdownTimer.Stop()
 
 	select {
 	case <-workerDone:
-		logger.Info(
-			"outbox worker stopped gracefully",
-		)
+		logger.Info("outbox worker stopped gracefully")
 
 	case <-workerShutdownTimer.C:
 		runErr = errors.Join(
 			runErr,
-			errors.New(
-				"outbox worker shutdown timed out",
-			),
+			errors.New("outbox worker shutdown timed out"),
 		)
 	}
 
-	logger.Info(
-		"http server stopped gracefully",
-	)
-
+	logger.Info("http server stopped gracefully")
 	return runErr
 }

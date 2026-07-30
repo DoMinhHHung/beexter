@@ -21,6 +21,7 @@ func NewRouter(
 	database *pgxpool.Pool,
 	cache *redis.Client,
 	signupExecutor SignupExecutor,
+	loginExecutor LoginExecutor,
 	verifyEmailExecutor VerifyEmailExecutor,
 	resendVerificationExecutor ResendVerificationExecutor,
 ) http.Handler {
@@ -33,27 +34,22 @@ func NewRouter(
 
 	mux.HandleFunc(
 		"GET /ready",
-		readinessHandler(
-			logger,
-			database,
-			cache,
-		),
+		readinessHandler(logger, database, cache),
 	)
 
 	mux.HandleFunc(
 		"POST /v1/auth/signup",
-		signupHandler(
-			logger,
-			signupExecutor,
-		),
+		signupHandler(logger, signupExecutor),
+	)
+
+	mux.HandleFunc(
+		"POST /v1/auth/login",
+		loginHandler(logger, loginExecutor),
 	)
 
 	mux.HandleFunc(
 		"POST /v1/auth/verify-email",
-		verifyEmailHandler(
-			logger,
-			verifyEmailExecutor,
-		),
+		verifyEmailHandler(logger, verifyEmailExecutor),
 	)
 
 	mux.HandleFunc(
@@ -67,19 +63,12 @@ func NewRouter(
 	return applyMiddleware(logger, mux)
 }
 
-func healthHandler(
-	logger *slog.Logger,
-) http.HandlerFunc {
-	return func(
-		w http.ResponseWriter,
-		_ *http.Request,
-	) {
+func healthHandler(logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(
 			w,
 			http.StatusOK,
-			statusResponse{
-				Status: "ok",
-			},
+			statusResponse{Status: "ok"},
 			logger,
 		)
 	}
@@ -97,17 +86,23 @@ func readinessHandler(
 		)
 		defer cancel()
 
+		if database == nil {
+			writeError(
+				w,
+				http.StatusServiceUnavailable,
+				"ERR_INTERNAL",
+				"service is not ready",
+				requestIDFromContext(r.Context()),
+				logger,
+			)
+			return
+		}
+
 		if err := database.Ping(ctx); err != nil {
 			logger.Warn(
 				"readiness check failed",
-				slog.String(
-					"dependency",
-					"postgresql",
-				),
-				slog.String(
-					"error",
-					err.Error(),
-				),
+				slog.String("dependency", "postgresql"),
+				slog.String("error", err.Error()),
 			)
 
 			writeError(
@@ -115,26 +110,29 @@ func readinessHandler(
 				http.StatusServiceUnavailable,
 				"ERR_INTERNAL",
 				"service is not ready",
-				requestIDFromContext(
-					r.Context(),
-				),
+				requestIDFromContext(r.Context()),
 				logger,
 			)
+			return
+		}
 
+		if cache == nil {
+			writeError(
+				w,
+				http.StatusServiceUnavailable,
+				"ERR_INTERNAL",
+				"service is not ready",
+				requestIDFromContext(r.Context()),
+				logger,
+			)
 			return
 		}
 
 		if err := cache.Ping(ctx).Err(); err != nil {
 			logger.Warn(
 				"readiness check failed",
-				slog.String(
-					"dependency",
-					"redis",
-				),
-				slog.String(
-					"error",
-					err.Error(),
-				),
+				slog.String("dependency", "redis"),
+				slog.String("error", err.Error()),
 			)
 
 			writeError(
@@ -142,21 +140,16 @@ func readinessHandler(
 				http.StatusServiceUnavailable,
 				"ERR_INTERNAL",
 				"service is not ready",
-				requestIDFromContext(
-					r.Context(),
-				),
+				requestIDFromContext(r.Context()),
 				logger,
 			)
-
 			return
 		}
 
 		writeJSON(
 			w,
 			http.StatusOK,
-			statusResponse{
-				Status: "ready",
-			},
+			statusResponse{Status: "ready"},
 			logger,
 		)
 	}
