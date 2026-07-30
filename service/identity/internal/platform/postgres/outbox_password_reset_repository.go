@@ -20,6 +20,8 @@ JOIN identity.identities AS identity
     ON identity.id = token.identity_id
 WHERE identity.id = $1::uuid
   AND token.id = $2::uuid
+  AND identity.status = 'active'
+  AND identity.deleted_at IS NULL
 `
 
 func (r *OutboxRepository) LoadPasswordReset(

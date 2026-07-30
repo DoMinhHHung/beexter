@@ -12,6 +12,7 @@ import (
 	"time"
 
 	authenticateapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/authenticate"
+	forgotpasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/forgotpassword"
 	loginapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
 	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
 	refreshapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
@@ -166,6 +167,20 @@ func run(logger *slog.Logger) error {
 		)
 	}
 
+	forgotPasswordLimiter, err := ratelimit.NewForgotPasswordLimiter(
+		slidingWindowLimiter,
+		rateLimitKeys,
+		ratelimit.ForgotPasswordPolicy{
+			IPLimit:     forgotPasswordConfig.RateLimit.IPLimit,
+			IPWindow:    forgotPasswordConfig.RateLimit.IPWindow,
+			EmailLimit:  forgotPasswordConfig.RateLimit.EmailLimit,
+			EmailWindow: forgotPasswordConfig.RateLimit.EmailWindow,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("create forgot-password rate limiter: %w", err)
+	}
+
 	signupRepository, err := postgres.NewSignupRepository(database)
 	if err != nil {
 		return fmt.Errorf("create signup repository: %w", err)
@@ -179,6 +194,11 @@ func run(logger *slog.Logger) error {
 	refreshRepository, err := postgres.NewRefreshRepository(database)
 	if err != nil {
 		return fmt.Errorf("create refresh repository: %w", err)
+	}
+
+	authenticationRepository, err := postgres.NewAuthenticationRepository(database)
+	if err != nil {
+		return fmt.Errorf("create authentication repository: %w", err)
 	}
 
 	verifyEmailRepository, err := postgres.NewVerifyEmailRepository(database)
@@ -195,10 +215,9 @@ func run(logger *slog.Logger) error {
 		)
 	}
 
-	authenticationRepository, err :=
-		postgres.NewAuthenticationRepository(database)
+	forgotPasswordRepository, err := postgres.NewForgotPasswordRepository(database)
 	if err != nil {
-		return fmt.Errorf("create authentication repository: %w", err)
+		return fmt.Errorf("create forgot-password repository: %w", err)
 	}
 
 	passwordHasher := passwordhash.New()
@@ -227,20 +246,6 @@ func run(logger *slog.Logger) error {
 	)
 	if err != nil {
 		return fmt.Errorf("create session store: %w", err)
-	}
-
-	authenticateUseCase, err := authenticateapp.New(
-		authenticationRepository,
-		accessTokenService,
-		time.Now,
-	)
-	if err != nil {
-		return fmt.Errorf("create authentication use case: %w", err)
-	}
-
-	sessionManager, err := sessionmanagementapp.New(sessionStore)
-	if err != nil {
-		return fmt.Errorf("create session manager: %w", err)
 	}
 
 	signupUseCase, err := signupapp.New(
@@ -282,6 +287,20 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create refresh use case: %w", err)
 	}
 
+	authenticateUseCase, err := authenticateapp.New(
+		authenticationRepository,
+		accessTokenService,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("create authentication use case: %w", err)
+	}
+
+	sessionManagementService, err := sessionmanagementapp.New(sessionStore)
+	if err != nil {
+		return fmt.Errorf("create session-management service: %w", err)
+	}
+
 	verifyEmailUseCase, err := verifyemailapp.New(
 		verifyEmailRepository,
 		time.Now,
@@ -301,6 +320,16 @@ func run(logger *slog.Logger) error {
 			"create resend-verification use case: %w",
 			err,
 		)
+	}
+
+	forgotPasswordUseCase, err := forgotpasswordapp.New(
+		forgotPasswordRepository,
+		identifierGenerator,
+		forgotPasswordLimiter,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("create forgot-password use case: %w", err)
 	}
 
 	emailCatalog, err := emaildelivery.NewCatalog()
@@ -390,8 +419,9 @@ func run(logger *slog.Logger) error {
 			Refresh:            refreshUseCase,
 			VerifyEmail:        verifyEmailUseCase,
 			ResendVerification: resendVerificationUseCase,
+			ForgotPassword:     forgotPasswordUseCase,
 			Authenticator:      authenticateUseCase,
-			Sessions:           sessionManager,
+			Sessions:           sessionManagementService,
 		},
 	)
 
