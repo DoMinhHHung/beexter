@@ -40,6 +40,14 @@ const (
 )
 
 func NormalizeAndValidateEmail(rawEmail string) (string, error) {
+	// Reject CR/LF before normalization.
+	//
+	// strings.TrimSpace removes these characters, so checking after trimming
+	// would silently accept input such as "user@example.com\n".
+	if strings.ContainsAny(rawEmail, "\r\n") {
+		return "", errEmailInvalid
+	}
+
 	email := strings.ToLower(strings.TrimSpace(rawEmail))
 
 	if email == "" {
@@ -50,12 +58,12 @@ func NormalizeAndValidateEmail(rawEmail string) (string, error) {
 		return "", errEmailTooLong
 	}
 
-	if strings.ContainsAny(email, "\r\n") {
+	parsedAddress, err := mail.ParseAddress(email)
+	if err != nil {
 		return "", errEmailInvalid
 	}
 
-	parsedAddress, err := mail.ParseAddress(email)
-	if err != nil || parsedAddress.Address != email {
+	if parsedAddress.Address != email {
 		return "", errEmailInvalid
 	}
 
@@ -99,8 +107,7 @@ func ValidatePassword(password string) error {
 		case unicode.IsDigit(character):
 			hasDigit = true
 
-		case unicode.IsPunct(character),
-			unicode.IsSymbol(character):
+		case unicode.IsPunct(character), unicode.IsSymbol(character):
 			hasSpecial = true
 		}
 	}
