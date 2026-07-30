@@ -19,6 +19,18 @@ const (
 	parallelismCost uint8  = 4
 	saltLength             = 16
 	hashLength      uint32 = 32
+
+	minMemoryCost      uint32 = 19 * 1024
+	maxMemoryCost      uint32 = 256 * 1024
+	minIterationCost   uint32 = 1
+	maxIterationCost   uint32 = 10
+	minParallelismCost uint8  = 1
+	maxParallelismCost uint8  = 8
+
+	minSaltLength = 16
+	maxSaltLength = 64
+	minHashLength = 16
+	maxHashLength = 64
 )
 
 var ErrInvalidHash = errors.New("invalid password hash")
@@ -110,6 +122,19 @@ func (h *Hasher) Verify(
 	) == 1, nil
 }
 
+func (h *Hasher) NeedsRehash(encodedHash string) bool {
+	params, salt, key, err := parseHash(encodedHash)
+	if err != nil {
+		return false
+	}
+
+	return params.memory != memoryCost ||
+		params.iterations != iterationCost ||
+		params.parallelism != parallelismCost ||
+		len(salt) != saltLength ||
+		len(key) != int(hashLength)
+}
+
 func parseHash(
 	encodedHash string,
 ) (parameters, []byte, []byte, error) {
@@ -133,22 +158,19 @@ func parseHash(
 		return parameters{}, nil, nil, ErrInvalidHash
 	}
 
-	// Reject unexpected cost parameters instead of trusting values read
-	// from persistent storage. This prevents excessive CPU or memory use
-	// if a stored hash is malformed or tampered with.
-	if params.memory != memoryCost ||
-		params.iterations != iterationCost ||
-		params.parallelism != parallelismCost {
+	if params.memory < minMemoryCost || params.memory > maxMemoryCost ||
+		params.iterations < minIterationCost || params.iterations > maxIterationCost ||
+		params.parallelism < minParallelismCost || params.parallelism > maxParallelismCost {
 		return parameters{}, nil, nil, ErrInvalidHash
 	}
 
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
-	if err != nil || len(salt) != saltLength {
+	if err != nil || len(salt) < minSaltLength || len(salt) > maxSaltLength {
 		return parameters{}, nil, nil, ErrInvalidHash
 	}
 
 	key, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil || len(key) != int(hashLength) {
+	if err != nil || len(key) < minHashLength || len(key) > maxHashLength {
 		return parameters{}, nil, nil, ErrInvalidHash
 	}
 
@@ -161,12 +183,12 @@ func parseVersion(rawVersion string) (int, error) {
 		return 0, ErrInvalidHash
 	}
 
-	version, err := strconv.ParseUint(value, 10, 32)
+	version, err := strconv.Atoi(value)
 	if err != nil {
 		return 0, ErrInvalidHash
 	}
 
-	return int(version), nil
+	return version, nil
 }
 
 func parseParameters(rawParameters string) (parameters, error) {
