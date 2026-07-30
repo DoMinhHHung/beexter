@@ -10,13 +10,20 @@ import (
 func TestHealthHandler(t *testing.T) {
 	t.Parallel()
 
-	handler := NewRouter(testLogger(), nil, nil, nil)
+	handler := NewRouter(
+		testLogger(),
+		nil,
+		nil,
+		nil,
+		nil,
+	)
 
 	request := httptest.NewRequest(
 		http.MethodGet,
 		"/health",
 		nil,
 	)
+
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -31,15 +38,27 @@ func TestHealthHandler(t *testing.T) {
 
 	var payload statusResponse
 
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
+	if err := json.NewDecoder(
+		response.Body,
+	).Decode(&payload); err != nil {
+		t.Fatalf(
+			"decode response: %v",
+			err,
+		)
 	}
 
 	if payload.Status != "ok" {
-		t.Fatalf("expected status ok, got %q", payload.Status)
+		t.Fatalf(
+			"expected status ok, got %q",
+			payload.Status,
+		)
 	}
 
-	if response.Header().Get("X-Request-ID") == "" {
-		t.Error("expected X-Request-ID response header")
+	if response.Header().Get(
+		"X-Request-ID",
+	) == "" {
+		t.Error(
+			"expected X-Request-ID response header",
+		)
 	}
 }

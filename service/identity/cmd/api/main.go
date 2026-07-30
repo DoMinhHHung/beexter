@@ -13,6 +13,7 @@ import (
 
 	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
 	signupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
+	verifyemailapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/config"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/httpapi"
 	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/emaildelivery"
@@ -38,6 +39,7 @@ func main() {
 			"application stopped unexpectedly",
 			slog.String("error", err.Error()),
 		)
+
 		os.Exit(1)
 	}
 }
@@ -70,7 +72,10 @@ func run(logger *slog.Logger) error {
 	cancelDatabase()
 
 	if err != nil {
-		return fmt.Errorf("open PostgreSQL: %w", err)
+		return fmt.Errorf(
+			"open PostgreSQL: %w",
+			err,
+		)
 	}
 	defer database.Close()
 
@@ -88,7 +93,10 @@ func run(logger *slog.Logger) error {
 	cancelRedis()
 
 	if err != nil {
-		return fmt.Errorf("open Redis: %w", err)
+		return fmt.Errorf(
+			"open Redis: %w",
+			err,
+		)
 	}
 
 	defer func() {
@@ -126,10 +134,19 @@ func run(logger *slog.Logger) error {
 		slidingWindowLimiter,
 		rateLimitKeys,
 		ratelimit.SignupPolicy{
-			IPLimit:     cfg.RateLimit.Signup.IPLimit,
-			IPWindow:    cfg.RateLimit.Signup.IPWindow,
-			EmailLimit:  cfg.RateLimit.Signup.EmailLimit,
-			EmailWindow: cfg.RateLimit.Signup.EmailWindow,
+			IPLimit: cfg.RateLimit.Signup.IPLimit,
+			IPWindow: cfg.
+				RateLimit.
+				Signup.
+				IPWindow,
+			EmailLimit: cfg.
+				RateLimit.
+				Signup.
+				EmailLimit,
+			EmailWindow: cfg.
+				RateLimit.
+				Signup.
+				EmailWindow,
 		},
 	)
 	if err != nil {
@@ -144,6 +161,15 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf(
 			"create signup repository: %w",
+			err,
+		)
+	}
+
+	verifyEmailRepository, err :=
+		postgres.NewVerifyEmailRepository(database)
+	if err != nil {
+		return fmt.Errorf(
+			"create verify-email repository: %w",
 			err,
 		)
 	}
@@ -166,6 +192,17 @@ func run(logger *slog.Logger) error {
 		)
 	}
 
+	verifyEmailUseCase, err := verifyemailapp.New(
+		verifyEmailRepository,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"create verify-email use case: %w",
+			err,
+		)
+	}
+
 	emailRenderer, err := emaildelivery.NewRenderer()
 	if err != nil {
 		return fmt.Errorf(
@@ -176,13 +213,19 @@ func run(logger *slog.Logger) error {
 
 	smtpSender, err := emaildelivery.NewSMTPSender(
 		emaildelivery.SMTPConfig{
-			Host:        cfg.Email.SMTPHost,
-			Port:        cfg.Email.SMTPPort,
-			Username:    cfg.Email.SMTPUsername,
-			AppPassword: cfg.Email.SMTPAppPassword,
-			FromName:    cfg.Email.SMTPFromName,
-			FromAddress: cfg.Email.SMTPFromAddress,
-			Timeout:     cfg.Email.SMTPTimeout,
+			Host: cfg.Email.SMTPHost,
+			Port: cfg.Email.SMTPPort,
+			Username: cfg.
+				Email.
+				SMTPUsername,
+			AppPassword: cfg.
+				Email.
+				SMTPAppPassword,
+			FromName: cfg.Email.SMTPFromName,
+			FromAddress: cfg.
+				Email.
+				SMTPFromAddress,
+			Timeout: cfg.Email.SMTPTimeout,
 		},
 		logger,
 	)
@@ -221,13 +264,21 @@ func run(logger *slog.Logger) error {
 		identifierGenerator,
 		logger,
 		outboxapp.WorkerConfig{
-			PollInterval:    cfg.Outbox.PollInterval,
-			BatchSize:       cfg.Outbox.BatchSize,
-			LockTimeout:     cfg.Outbox.LockTimeout,
-			DatabaseTimeout: cfg.Outbox.DatabaseTimeout,
-			DeliveryTimeout: cfg.Outbox.DeliveryTimeout,
-			RetryBase:       cfg.Outbox.RetryBase,
-			RetryMax:        cfg.Outbox.RetryMax,
+			PollInterval: cfg.
+				Outbox.
+				PollInterval,
+			BatchSize: cfg.Outbox.BatchSize,
+			LockTimeout: cfg.
+				Outbox.
+				LockTimeout,
+			DatabaseTimeout: cfg.
+				Outbox.
+				DatabaseTimeout,
+			DeliveryTimeout: cfg.
+				Outbox.
+				DeliveryTimeout,
+			RetryBase: cfg.Outbox.RetryBase,
+			RetryMax:  cfg.Outbox.RetryMax,
 		},
 		time.Now,
 	)
@@ -243,6 +294,7 @@ func run(logger *slog.Logger) error {
 		database,
 		cache,
 		signupUseCase,
+		verifyEmailUseCase,
 	)
 
 	server := &http.Server{
@@ -258,6 +310,7 @@ func run(logger *slog.Logger) error {
 
 	go func() {
 		defer close(workerDone)
+
 		outboxWorker.Run(applicationContext)
 	}()
 
@@ -266,7 +319,10 @@ func run(logger *slog.Logger) error {
 	go func() {
 		logger.Info(
 			"http server started",
-			slog.String("address", server.Addr),
+			slog.String(
+				"address",
+				server.Addr,
+			),
 		)
 
 		serverError <- server.ListenAndServe()
@@ -285,7 +341,10 @@ func run(logger *slog.Logger) error {
 		serverResultConsumed = true
 
 		if err != nil &&
-			!errors.Is(err, http.ErrServerClosed) {
+			!errors.Is(
+				err,
+				http.ErrServerClosed,
+			) {
 			runErr = fmt.Errorf(
 				"serve HTTP: %w",
 				err,
@@ -302,7 +361,9 @@ func run(logger *slog.Logger) error {
 		)
 	defer cancelShutdown()
 
-	if err := server.Shutdown(shutdownContext); err != nil {
+	if err := server.Shutdown(
+		shutdownContext,
+	); err != nil {
 		closeErr := server.Close()
 
 		runErr = errors.Join(
@@ -319,7 +380,10 @@ func run(logger *slog.Logger) error {
 		serveErr := <-serverError
 
 		if serveErr != nil &&
-			!errors.Is(serveErr, http.ErrServerClosed) {
+			!errors.Is(
+				serveErr,
+				http.ErrServerClosed,
+			) {
 			runErr = errors.Join(
 				runErr,
 				fmt.Errorf(
@@ -337,7 +401,9 @@ func run(logger *slog.Logger) error {
 
 	select {
 	case <-workerDone:
-		logger.Info("outbox worker stopped gracefully")
+		logger.Info(
+			"outbox worker stopped gracefully",
+		)
 
 	case <-workerShutdownTimer.C:
 		runErr = errors.Join(
@@ -348,7 +414,9 @@ func run(logger *slog.Logger) error {
 		)
 	}
 
-	logger.Info("http server stopped gracefully")
+	logger.Info(
+		"http server stopped gracefully",
+	)
 
 	return runErr
 }
