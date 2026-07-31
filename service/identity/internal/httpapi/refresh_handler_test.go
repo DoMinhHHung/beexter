@@ -31,8 +31,8 @@ func TestRefreshHandlerRotatesTokens(t *testing.T) {
 				AccessToken:           "new-access",
 				RefreshToken:          "new-refresh",
 				TokenType:             "Bearer",
-				AccessTokenExpiresAt:  time.Date(2026, 7, 30, 13, 0, 0, 0, time.UTC),
-				RefreshTokenExpiresAt: time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC),
+				AccessTokenExpiresAt:  time.Date(2026, 7, 30, 13, 0, 0, 500_000_000, time.UTC),
+				RefreshTokenExpiresAt: time.Date(2026, 8, 6, 12, 0, 0, 750_000_000, time.UTC),
 				DeviceID:              "0198f124-659f-7cbd-a441-dc7eea175074",
 			}, nil
 		},
@@ -65,7 +65,9 @@ func TestRefreshHandlerRotatesTokens(t *testing.T) {
 	}
 
 	if payload.Data.RefreshToken != "new-refresh" ||
-		payload.Data.AccessToken != "new-access" {
+		payload.Data.AccessToken != "new-access" ||
+		payload.Data.AccessTokenExpiresAt != "2026-07-30T13:00:00.5Z" ||
+		payload.Data.RefreshTokenExpiresAt != "2026-08-06T12:00:00.75Z" {
 		t.Fatalf("unexpected response: %+v", payload)
 	}
 }

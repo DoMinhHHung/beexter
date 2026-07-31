@@ -28,7 +28,7 @@ func TestUseCaseReturnsCurrentIdentity(t *testing.T) {
 			return identity.Identity{
 				ID:            getMeTestUserID,
 				Email:         "user@example.com",
-				Role:          identity.RoleJobSeeker,
+				PlatformRole:  identity.PlatformRoleAdmin,
 				Status:        identity.StatusActive,
 				EmailVerified: true,
 				CreatedAt:     createdAt,
@@ -52,7 +52,7 @@ func TestUseCaseReturnsCurrentIdentity(t *testing.T) {
 
 	if output.ID != getMeTestUserID ||
 		output.Email != "user@example.com" ||
-		output.Role != identity.RoleJobSeeker ||
+		output.PlatformRole != identity.PlatformRoleAdmin ||
 		output.Status != identity.StatusActive ||
 		!output.EmailVerified ||
 		!output.CreatedAt.Equal(createdAt) ||
@@ -98,7 +98,7 @@ func TestUseCaseRejectsInactiveIdentity(t *testing.T) {
 			return identity.Identity{
 				ID:            getMeTestUserID,
 				Email:         "user@example.com",
-				Role:          identity.RoleClient,
+				PlatformRole:  identity.PlatformRoleNone,
 				Status:        identity.StatusInactive,
 				EmailVerified: true,
 				CreatedAt:     time.Now().UTC().Add(-time.Hour),

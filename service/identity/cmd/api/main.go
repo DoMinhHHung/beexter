@@ -69,6 +69,11 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
+	accessTokenService, err := newAccessTokenService(cfg.Token)
+	if err != nil {
+		return err
+	}
+
 	forgotPasswordConfig, err := config.LoadForgotPassword()
 	if err != nil {
 		return fmt.Errorf("load forgot-password config: %w", err)
@@ -288,11 +293,6 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create refresh repository: %w", err)
 	}
 
-	authenticationRepository, err := postgres.NewAuthenticationRepository(database)
-	if err != nil {
-		return fmt.Errorf("create authentication repository: %w", err)
-	}
-
 	meRepository, err := postgres.NewMeRepository(database)
 	if err != nil {
 		return fmt.Errorf("create me repository: %w", err)
@@ -353,11 +353,6 @@ func run(logger *slog.Logger) error {
 	dummyPasswordHash, err := passwordHasher.Hash(dummyLoginPassword)
 	if err != nil {
 		return fmt.Errorf("create dummy login password hash: %w", err)
-	}
-
-	accessTokenService, err := accesstoken.New(cfg.Token.JWTSecret)
-	if err != nil {
-		return fmt.Errorf("create access-token service: %w", err)
 	}
 
 	refreshTokenCodec, err := refreshtoken.New(
@@ -429,7 +424,6 @@ func run(logger *slog.Logger) error {
 	}
 
 	authenticateUseCase, err := authenticateapp.New(
-		authenticationRepository,
 		accessTokenService,
 		time.Now,
 	)
@@ -643,6 +637,7 @@ func run(logger *slog.Logger) error {
 			LoginHistory:             loginHistoryUseCase,
 			Authenticator:            authenticateUseCase,
 			Sessions:                 sessionManagementService,
+			JWKS:                     accessTokenService,
 		},
 	)
 
@@ -740,4 +735,29 @@ func run(logger *slog.Logger) error {
 
 	logger.Info("http server stopped gracefully")
 	return runErr
+}
+
+func newAccessTokenService(
+	tokenConfig config.TokenConfig,
+) (*accesstoken.RS256, error) {
+	privateKey, err := accesstoken.LoadPrivateKey(tokenConfig.PrivateKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("load access-token private key: %w", err)
+	}
+
+	service, err := accesstoken.New(
+		privateKey,
+		accesstoken.Config{
+			Issuer:           tokenConfig.Issuer,
+			Audience:         tokenConfig.Audience,
+			KeyID:            tokenConfig.KeyID,
+			AccessTokenTTL:   tokenConfig.AccessTokenTTL,
+			AllowedClockSkew: tokenConfig.AllowedClockSkew,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create access-token service: %w", err)
+	}
+
+	return service, nil
 }

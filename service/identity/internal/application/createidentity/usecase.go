@@ -19,30 +19,32 @@ const (
 var (
 	ErrDependencyMissing  = errors.New("create-identity dependency is missing")
 	ErrEmailAlreadyExists = errors.New("email already exists")
+	ErrActorForbidden     = errors.New("actor is not authorized")
 )
 
 type Input struct {
-	ActorID   identity.ID
-	ActorRole identity.Role
-	Email     string
-	Password  string
-	Role      string
-	Locale    string
+	ActorID           identity.ID
+	ActorPlatformRole identity.PlatformRole
+	Email             string
+	Password          string
+	PlatformRole      string
+	Locale            string
 }
 
 type Output struct {
-	ID    identity.ID
-	Email string
-	Role  identity.Role
+	ID           identity.ID
+	Email        string
+	PlatformRole identity.PlatformRole
 }
 
 type CreateParams struct {
+	ActorID                    identity.ID
 	IdentityID                 identity.ID
 	VerificationTokenID        string
 	OutboxEventID              string
 	Email                      string
 	PasswordHash               string
-	Role                       identity.Role
+	PlatformRole               identity.PlatformRole
 	Status                     identity.Status
 	Locale                     string
 	CreatedAt                  time.Time
@@ -121,16 +123,19 @@ func (u *UseCase) Execute(
 		)
 	}
 
-	if input.ActorID.IsZero() || !input.ActorRole.IsValid() {
+	if input.ActorID.IsZero() || !input.ActorPlatformRole.IsValid() {
 		return Output{}, domain.NewError(domain.ErrForbidden)
 	}
 
-	targetRole, err := identity.ParseRole(input.Role)
+	targetRole, err := identity.ParsePlatformRole(input.PlatformRole)
 	if err != nil {
 		return Output{}, domain.WrapError(domain.ErrInvalidInput, err)
 	}
+	if !targetRole.IsAssigned() {
+		return Output{}, domain.NewError(domain.ErrInvalidInput)
+	}
 
-	if !identity.CanCreateRole(input.ActorRole, targetRole) {
+	if !identity.CanCreatePlatformRole(input.ActorPlatformRole, targetRole) {
 		return Output{}, domain.NewError(domain.ErrForbidden)
 	}
 
@@ -186,12 +191,13 @@ func (u *UseCase) Execute(
 	err = u.repository.Create(
 		ctx,
 		CreateParams{
+			ActorID:             input.ActorID,
 			IdentityID:          identityID,
 			VerificationTokenID: verificationTokenID,
 			OutboxEventID:       outboxEventID,
 			Email:               email,
 			PasswordHash:        passwordHash,
-			Role:                targetRole,
+			PlatformRole:        targetRole,
 			Status:              identity.StatusActive,
 			Locale:              domainlocale.Normalize(input.Locale),
 			CreatedAt:           now,
@@ -202,6 +208,10 @@ func (u *UseCase) Execute(
 		},
 	)
 	if err != nil {
+		if errors.Is(err, ErrActorForbidden) {
+			return Output{}, domain.NewError(domain.ErrForbidden)
+		}
+
 		if errors.Is(err, ErrEmailAlreadyExists) {
 			return Output{}, domain.NewError(domain.ErrEmailAlreadyExists)
 		}
@@ -213,8 +223,8 @@ func (u *UseCase) Execute(
 	}
 
 	return Output{
-		ID:    identityID,
-		Email: email,
-		Role:  targetRole,
+		ID:           identityID,
+		Email:        email,
+		PlatformRole: targetRole,
 	}, nil
 }

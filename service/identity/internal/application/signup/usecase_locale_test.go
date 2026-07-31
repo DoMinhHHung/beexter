@@ -41,7 +41,6 @@ func TestSignupPersistsNormalizedLocale(t *testing.T) {
 		Input{
 			Email:     "user@example.com",
 			Password:  "Secure1!",
-			Role:      "CLIENT",
 			Locale:    "JA-jp",
 			IPAddress: netip.MustParseAddr("192.0.2.10"),
 			RequestID: "request-1",

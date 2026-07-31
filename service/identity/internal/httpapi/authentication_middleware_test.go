@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
 	authenticateapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/authenticate"
@@ -121,9 +122,11 @@ func middlewarePrincipal() appauth.Principal {
 		UserID: identity.ID(
 			"0198f124-659f-7cbd-a441-dc7eea175073",
 		),
-		DeviceID:      middlewareTestDeviceID,
-		Role:          identity.RoleClient,
-		EmailVerified: true,
+		DeviceID:       middlewareTestDeviceID,
+		PlatformRole:   identity.PlatformRoleNone,
+		AccessTokenJTI: "0198f124-659f-7cbd-a441-dc7eea175075",
+		IssuedAt:       time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC),
+		ExpiresAt:      time.Date(2026, time.July, 30, 12, 15, 0, 0, time.UTC),
 	}
 }
 

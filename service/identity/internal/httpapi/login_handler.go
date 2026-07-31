@@ -42,7 +42,7 @@ type loginResponseData struct {
 type loginResponseUser struct {
 	ID            string `json:"id"`
 	Email         string `json:"email"`
-	Role          string `json:"role"`
+	PlatformRole  string `json:"platform_role,omitempty"`
 	EmailVerified bool   `json:"email_verified"`
 }
 
@@ -129,13 +129,13 @@ func loginHandler(
 					AccessToken:           output.AccessToken,
 					RefreshToken:          output.RefreshToken,
 					TokenType:             output.TokenType,
-					AccessTokenExpiresAt:  output.AccessTokenExpiresAt.Format(time.RFC3339),
-					RefreshTokenExpiresAt: output.RefreshTokenExpiresAt.Format(time.RFC3339),
+					AccessTokenExpiresAt:  output.AccessTokenExpiresAt.Format(time.RFC3339Nano),
+					RefreshTokenExpiresAt: output.RefreshTokenExpiresAt.Format(time.RFC3339Nano),
 					DeviceID:              output.DeviceID,
 					User: loginResponseUser{
 						ID:            output.User.ID.String(),
 						Email:         output.User.Email,
-						Role:          string(output.User.Role),
+						PlatformRole:  string(output.User.PlatformRole),
 						EmailVerified: output.User.EmailVerified,
 					},
 				},

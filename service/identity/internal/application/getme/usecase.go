@@ -22,7 +22,7 @@ type Input struct {
 type Output struct {
 	ID            identity.ID
 	Email         string
-	Role          identity.Role
+	PlatformRole  identity.PlatformRole
 	Status        identity.Status
 	EmailVerified bool
 	CreatedAt     time.Time
@@ -97,7 +97,7 @@ func (u *UseCase) Execute(
 	return Output{
 		ID:            account.ID,
 		Email:         account.Email,
-		Role:          account.Role,
+		PlatformRole:  account.PlatformRole,
 		Status:        account.Status,
 		EmailVerified: account.EmailVerified,
 		CreatedAt:     account.CreatedAt.UTC(),

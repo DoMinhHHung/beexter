@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -15,7 +16,7 @@ const findMeIdentitySQL = `
 SELECT
     id::text,
     email,
-    role,
+    platform_role,
     status,
     email_verified_at,
     soft_delete_count,
@@ -66,7 +67,7 @@ func (r *MeRepository) FindByID(
 	var (
 		rawID           string
 		email           string
-		rawRole         string
+		rawPlatformRole sql.NullString
 		rawStatus       string
 		emailVerifiedAt *time.Time
 		softDeleteCount int16
@@ -82,7 +83,7 @@ func (r *MeRepository) FindByID(
 	).Scan(
 		&rawID,
 		&email,
-		&rawRole,
+		&rawPlatformRole,
 		&rawStatus,
 		&emailVerifiedAt,
 		&softDeleteCount,
@@ -114,13 +115,9 @@ func (r *MeRepository) FindByID(
 		)
 	}
 
-	role := identity.Role(rawRole)
-	if !role.IsValid() {
-		return identity.Identity{}, fmt.Errorf(
-			"%w: unknown role %q",
-			ErrInvalidPersistedIdentity,
-			rawRole,
-		)
+	platformRole, err := platformRoleFromNullString(rawPlatformRole)
+	if err != nil {
+		return identity.Identity{}, err
 	}
 
 	status := identity.Status(rawStatus)
@@ -143,7 +140,7 @@ func (r *MeRepository) FindByID(
 	return identity.Identity{
 		ID:              parsedID,
 		Email:           email,
-		Role:            role,
+		PlatformRole:    platformRole,
 		Status:          status,
 		EmailVerified:   emailVerifiedAt != nil,
 		SoftDeleteCount: uint8(softDeleteCount),

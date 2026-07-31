@@ -175,7 +175,7 @@ func validAccount() identity.Identity {
 	return identity.Identity{
 		ID:            testUserID,
 		Email:         "user@example.com",
-		Role:          identity.RoleClient,
+		PlatformRole:  identity.PlatformRoleNone,
 		Status:        identity.StatusActive,
 		EmailVerified: true,
 	}

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -17,7 +18,7 @@ SELECT
     id::text,
     email,
     password_hash,
-    role,
+    platform_role,
     status,
     email_verified_at,
     soft_delete_count,
@@ -113,7 +114,7 @@ func (r *LoginRepository) FindByEmail(
 		rawID           string
 		persistedEmail  string
 		passwordHash    string
-		rawRole         string
+		rawPlatformRole sql.NullString
 		rawStatus       string
 		emailVerifiedAt *time.Time
 		softDeleteCount int16
@@ -130,7 +131,7 @@ func (r *LoginRepository) FindByEmail(
 		&rawID,
 		&persistedEmail,
 		&passwordHash,
-		&rawRole,
+		&rawPlatformRole,
 		&rawStatus,
 		&emailVerifiedAt,
 		&softDeleteCount,
@@ -158,13 +159,9 @@ func (r *LoginRepository) FindByEmail(
 		)
 	}
 
-	role := identity.Role(rawRole)
-	if !role.IsValid() {
-		return identity.Identity{}, fmt.Errorf(
-			"%w: unknown role %q",
-			ErrInvalidPersistedIdentity,
-			rawRole,
-		)
+	platformRole, err := platformRoleFromNullString(rawPlatformRole)
+	if err != nil {
+		return identity.Identity{}, err
 	}
 
 	status := identity.Status(rawStatus)
@@ -189,7 +186,7 @@ func (r *LoginRepository) FindByEmail(
 		ID:              identityID,
 		Email:           persistedEmail,
 		PasswordHash:    passwordHash,
-		Role:            role,
+		PlatformRole:    platformRole,
 		Status:          status,
 		EmailVerified:   emailVerifiedAt != nil,
 		SoftDeleteCount: uint8(softDeleteCount),

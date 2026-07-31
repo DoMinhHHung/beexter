@@ -28,7 +28,6 @@ var (
 type Input struct {
 	Email     string
 	Password  string
-	Role      string
 	Locale    string
 	IPAddress netip.Addr
 	RequestID string
@@ -37,7 +36,6 @@ type Input struct {
 type Output struct {
 	ID    identity.ID
 	Email string
-	Role  identity.Role
 }
 
 type CreateParams struct {
@@ -46,7 +44,6 @@ type CreateParams struct {
 	OutboxEventID              string
 	Email                      string
 	PasswordHash               string
-	Role                       identity.Role
 	Status                     identity.Status
 	Locale                     string
 	CreatedAt                  time.Time
@@ -185,11 +182,6 @@ func (u *UseCase) Execute(
 		return Output{}, domain.WrapError(domain.ErrInvalidInput, err)
 	}
 
-	role, err := identity.ParsePublicRole(input.Role)
-	if err != nil {
-		return Output{}, domain.WrapError(domain.ErrInvalidInput, err)
-	}
-
 	passwordHash, err := u.hasher.Hash(input.Password)
 	if err != nil {
 		return Output{}, domain.WrapError(
@@ -238,7 +230,6 @@ func (u *UseCase) Execute(
 			OutboxEventID:       outboxEventID,
 			Email:               email,
 			PasswordHash:        passwordHash,
-			Role:                role,
 			Status:              identity.StatusActive,
 			Locale:              domainlocale.Normalize(input.Locale),
 			CreatedAt:           now,
@@ -259,5 +250,5 @@ func (u *UseCase) Execute(
 		)
 	}
 
-	return Output{ID: identityID, Email: email, Role: role}, nil
+	return Output{ID: identityID, Email: email}, nil
 }

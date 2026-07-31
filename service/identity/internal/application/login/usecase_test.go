@@ -284,7 +284,7 @@ func validAccount() identity.Identity {
 		ID:            testUserID,
 		Email:         "user@example.com",
 		PasswordHash:  "$argon2id$stored",
-		Role:          identity.RoleJobSeeker,
+		PlatformRole:  identity.PlatformRoleNone,
 		Status:        identity.StatusActive,
 		EmailVerified: true,
 	}

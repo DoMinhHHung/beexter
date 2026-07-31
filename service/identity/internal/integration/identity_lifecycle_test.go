@@ -79,9 +79,9 @@ func TestSoftDeleteReactivationAndCleanup(t *testing.T) {
 	_, err = pool.Exec(
 		ctx,
 		`INSERT INTO identity.identities (
-			id, email, password_hash, role, status, email_verified_at,
+			id, email, password_hash, platform_role, status, email_verified_at,
 			soft_delete_count, created_at, updated_at
-		) VALUES ($1, $2, $3, 'JOB_SEEKER', 'active', $4, 0, $4, $4)`,
+		) VALUES ($1, $2, $3, NULL, 'active', $4, 0, $4, $4)`,
 		identityID.String(),
 		email,
 		passwordHash,

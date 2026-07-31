@@ -192,8 +192,7 @@ func (s *Service) validate(
 	}
 
 	if principal.UserID.IsZero() ||
-		!principal.Role.IsValid() ||
-		!principal.EmailVerified {
+		!principal.PlatformRole.IsValidOrEmpty() {
 		return domain.NewError(domain.ErrForbidden)
 	}
 

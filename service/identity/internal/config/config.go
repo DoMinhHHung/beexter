@@ -36,6 +36,10 @@ const (
 	defaultResendVerificationEmailWindow = time.Hour
 
 	defaultSessionOperationTimeout = 500 * time.Millisecond
+	defaultAccessTokenTTL          = 15 * time.Minute
+	maximumAccessTokenTTL          = time.Hour
+	defaultJWTAllowedClockSkew     = 30 * time.Second
+	maximumJWTAllowedClockSkew     = 2 * time.Minute
 
 	defaultSMTPHost     = "smtp.gmail.com"
 	defaultSMTPPort     = 587
@@ -96,8 +100,13 @@ type EmailIPRateLimitConfig struct {
 }
 
 type TokenConfig struct {
-	JWTSecret     string
-	RefreshSecret string
+	Issuer           string
+	Audience         string
+	KeyID            string
+	PrivateKeyPath   string
+	AccessTokenTTL   time.Duration
+	AllowedClockSkew time.Duration
+	RefreshSecret    string
 }
 
 type SessionConfig struct {
@@ -362,9 +371,60 @@ func loadEmailIPRateLimit(
 }
 
 func loadTokenConfig() (TokenConfig, error) {
-	jwtSecret, err := requiredSecret("JWT_HS256_SECRET")
+	issuer, err := requiredString("JWT_ISSUER")
 	if err != nil {
 		return TokenConfig{}, err
+	}
+
+	audience, err := requiredString("JWT_AUDIENCE")
+	if err != nil {
+		return TokenConfig{}, err
+	}
+
+	keyID, err := requiredString("JWT_KEY_ID")
+	if err != nil {
+		return TokenConfig{}, err
+	}
+
+	privateKeyPath, err := requiredString("JWT_PRIVATE_KEY_PATH")
+	if err != nil {
+		return TokenConfig{}, err
+	}
+
+	accessTokenTTL, err := readPositiveDuration(
+		"ACCESS_TOKEN_TTL",
+		defaultAccessTokenTTL,
+	)
+	if err != nil {
+		return TokenConfig{}, err
+	}
+	if accessTokenTTL > maximumAccessTokenTTL {
+		return TokenConfig{}, fmt.Errorf(
+			"ACCESS_TOKEN_TTL must not exceed %s",
+			maximumAccessTokenTTL,
+		)
+	}
+
+	allowedClockSkew, err := readDuration(
+		"JWT_ALLOWED_CLOCK_SKEW",
+		defaultJWTAllowedClockSkew,
+	)
+	if err != nil {
+		return TokenConfig{}, fmt.Errorf(
+			"read JWT_ALLOWED_CLOCK_SKEW: %w",
+			err,
+		)
+	}
+	if allowedClockSkew < 0 {
+		return TokenConfig{}, fmt.Errorf(
+			"JWT_ALLOWED_CLOCK_SKEW must not be negative",
+		)
+	}
+	if allowedClockSkew > maximumJWTAllowedClockSkew {
+		return TokenConfig{}, fmt.Errorf(
+			"JWT_ALLOWED_CLOCK_SKEW must not exceed %s",
+			maximumJWTAllowedClockSkew,
+		)
 	}
 
 	refreshSecret, err := requiredSecret("REFRESH_TOKEN_SECRET")
@@ -372,15 +432,14 @@ func loadTokenConfig() (TokenConfig, error) {
 		return TokenConfig{}, err
 	}
 
-	if jwtSecret == refreshSecret {
-		return TokenConfig{}, fmt.Errorf(
-			"JWT_HS256_SECRET and REFRESH_TOKEN_SECRET must be different",
-		)
-	}
-
 	return TokenConfig{
-		JWTSecret:     jwtSecret,
-		RefreshSecret: refreshSecret,
+		Issuer:           issuer,
+		Audience:         audience,
+		KeyID:            keyID,
+		PrivateKeyPath:   privateKeyPath,
+		AccessTokenTTL:   accessTokenTTL,
+		AllowedClockSkew: allowedClockSkew,
+		RefreshSecret:    refreshSecret,
 	}, nil
 }
 

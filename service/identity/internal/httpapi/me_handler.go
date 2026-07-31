@@ -25,7 +25,7 @@ type meResponse struct {
 type meResponseData struct {
 	ID            string    `json:"id"`
 	Email         string    `json:"email"`
-	Role          string    `json:"role"`
+	PlatformRole  string    `json:"platform_role,omitempty"`
 	Status        string    `json:"status"`
 	EmailVerified bool      `json:"email_verified"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -80,7 +80,7 @@ func meHandler(
 				Data: meResponseData{
 					ID:            output.ID.String(),
 					Email:         output.Email,
-					Role:          string(output.Role),
+					PlatformRole:  string(output.PlatformRole),
 					Status:        string(output.Status),
 					EmailVerified: output.EmailVerified,
 					CreatedAt:     output.CreatedAt,

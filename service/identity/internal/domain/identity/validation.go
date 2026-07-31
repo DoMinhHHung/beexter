@@ -26,17 +26,6 @@ var (
 	errPasswordLowercase   = errors.New("password requires a lowercase letter")
 	errPasswordDigit       = errors.New("password requires a digit")
 	errPasswordSpecial     = errors.New("password requires a special character")
-	errRoleInvalid         = errors.New("role is invalid")
-)
-
-type Role string
-
-const (
-	RoleClient    Role = "CLIENT"
-	RoleJobSeeker Role = "JOB_SEEKER"
-	RoleAgency    Role = "AGENCY"
-	RoleAdmin     Role = "ADMIN"
-	RoleViceAdmin Role = "VICE_ADMIN"
 )
 
 func NormalizeAndValidateEmail(rawEmail string) (string, error) {
@@ -129,38 +118,4 @@ func ValidatePassword(password string) error {
 	}
 
 	return nil
-}
-
-func ParsePublicRole(rawRole string) (Role, error) {
-	role := Role(strings.ToUpper(strings.TrimSpace(rawRole)))
-
-	if !role.IsPublic() {
-		return "", errRoleInvalid
-	}
-
-	return role, nil
-}
-
-func (r Role) IsValid() bool {
-	switch r {
-	case RoleClient,
-		RoleJobSeeker,
-		RoleAgency,
-		RoleAdmin,
-		RoleViceAdmin:
-		return true
-
-	default:
-		return false
-	}
-}
-
-func (r Role) IsPublic() bool {
-	switch r {
-	case RoleClient, RoleJobSeeker:
-		return true
-
-	default:
-		return false
-	}
 }

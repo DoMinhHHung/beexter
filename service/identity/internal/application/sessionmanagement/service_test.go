@@ -162,10 +162,8 @@ func newSessionService(t *testing.T, store Store) *Service {
 
 func validPrincipal() appauth.Principal {
 	return appauth.Principal{
-		UserID:        sessionManagementUserID,
-		DeviceID:      sessionManagementCurrentDevice,
-		Role:          identity.RoleClient,
-		EmailVerified: true,
+		UserID:   sessionManagementUserID,
+		DeviceID: sessionManagementCurrentDevice,
 	}
 }
 

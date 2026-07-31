@@ -33,6 +33,7 @@ type RouterDependencies struct {
 	LoginHistory             LoginHistoryExecutor
 	Authenticator            Authenticator
 	Sessions                 SessionManager
+	JWKS                     JWKSProvider
 }
 
 func NewRouter(
@@ -55,6 +56,10 @@ func NewRouter(
 
 	mux.HandleFunc("GET /openapi.yaml", openAPIHandler(logger))
 	mux.HandleFunc("GET /docs", swaggerUIHandler(logger))
+	mux.HandleFunc(
+		"GET /.well-known/jwks.json",
+		jwksHandler(logger, dependencies.JWKS),
+	)
 
 	mux.HandleFunc(
 		"POST /v1/auth/signup",
@@ -158,14 +163,13 @@ func NewRouter(
 		protected(revokeSessionHandler(logger, dependencies.Sessions)),
 	)
 
-	privilegedIdentityCreators := []identity.Role{
-		identity.RoleAdmin,
-		identity.RoleViceAdmin,
+	privilegedIdentityCreators := []identity.PlatformRole{
+		identity.PlatformRoleAdmin,
 	}
 	mux.Handle(
 		"POST /v1/admin/identities",
 		protected(
-			roleAuthorizationMiddleware(
+			platformRoleAuthorizationMiddleware(
 				logger,
 				privilegedIdentityCreators,
 				createPrivilegedIdentityHandler(

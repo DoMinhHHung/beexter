@@ -13,7 +13,7 @@ fi
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if git grep -nE \
-      '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|SMTP_APP_PASSWORD[[:space:]]*[:=][[:space:]]*"[^"$]+"|JWT_HS256_SECRET[[:space:]]*[:=][[:space:]]*"[^"$]+"|REFRESH_TOKEN_SECRET[[:space:]]*[:=][[:space:]]*"[^"$]+")' \
+      '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|SMTP_APP_PASSWORD[[:space:]]*[:=][[:space:]]*"[^"$]+"|REFRESH_TOKEN_SECRET[[:space:]]*[:=][[:space:]]*"[^"$]+")' \
       -- '*.go'; then
     echo "possible hard-coded secret found"
     exit 1

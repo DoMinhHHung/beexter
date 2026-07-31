@@ -233,12 +233,11 @@ func (u *UseCase) Execute(
 
 	accessToken, accessExpiresAt, err := u.accessTokens.Issue(
 		appauth.AccessTokenClaims{
-			Subject:       account.ID,
-			DeviceID:      claims.DeviceID,
-			Role:          account.Role,
-			EmailVerified: account.EmailVerified,
-			IssuedAt:      now,
-			JTI:           accessTokenJTI,
+			Subject:      account.ID,
+			DeviceID:     claims.DeviceID,
+			PlatformRole: account.PlatformRole,
+			IssuedAt:     now,
+			JTI:          accessTokenJTI,
 		},
 	)
 	if err != nil {

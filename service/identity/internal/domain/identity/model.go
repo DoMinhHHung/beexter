@@ -17,7 +17,7 @@ type Identity struct {
 	ID              ID
 	Email           string
 	PasswordHash    string
-	Role            Role
+	PlatformRole    PlatformRole
 	Status          Status
 	EmailVerified   bool
 	SoftDeleteCount uint8

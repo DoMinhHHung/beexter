@@ -2,20 +2,34 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	appcreateidentity "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
+	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5"
 )
+
+const lockPrivilegedActorSQL = `
+SELECT
+    platform_role,
+    status,
+    email_verified_at,
+    deleted_at
+FROM identity.identities
+WHERE id = $1::uuid
+FOR UPDATE
+`
 
 const insertPrivilegedIdentitySQL = `
 INSERT INTO identity.identities (
     id,
     email,
     password_hash,
-    role,
+    platform_role,
     status,
     created_at,
     updated_at
@@ -56,6 +70,10 @@ var (
 
 type PrivilegedIdentityRepository struct {
 	database transactionBeginner
+}
+
+type privilegedActorQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 func NewPrivilegedIdentityRepository(
@@ -120,13 +138,22 @@ func (r *PrivilegedIdentityRepository) Create(
 		returnErr = errors.Join(returnErr, wrappedRollbackErr)
 	}()
 
+	if params.ActorID.IsZero() ||
+		params.PlatformRole != identity.PlatformRoleViceAdmin {
+		return appcreateidentity.ErrActorForbidden
+	}
+
+	if err := authorizePrivilegedActor(ctx, tx, params.ActorID); err != nil {
+		return err
+	}
+
 	_, err = tx.Exec(
 		ctx,
 		insertPrivilegedIdentitySQL,
 		params.IdentityID.String(),
 		params.Email,
 		params.PasswordHash,
-		string(params.Role),
+		string(params.PlatformRole),
 		string(params.Status),
 		params.CreatedAt,
 	)
@@ -190,6 +217,47 @@ func (r *PrivilegedIdentityRepository) Create(
 	}
 
 	committed = true
+	return nil
+}
+
+func authorizePrivilegedActor(
+	ctx context.Context,
+	database privilegedActorQuerier,
+	actorID identity.ID,
+) error {
+	var (
+		rawPlatformRole sql.NullString
+		rawStatus       string
+		emailVerifiedAt *time.Time
+		deletedAt       *time.Time
+	)
+
+	err := database.QueryRow(
+		ctx,
+		lockPrivilegedActorSQL,
+		actorID.String(),
+	).Scan(
+		&rawPlatformRole,
+		&rawStatus,
+		&emailVerifiedAt,
+		&deletedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return appcreateidentity.ErrActorForbidden
+	}
+	if err != nil {
+		return fmt.Errorf("lock privileged identity actor: %w", err)
+	}
+
+	platformRole, roleErr := platformRoleFromNullString(rawPlatformRole)
+	if roleErr != nil ||
+		platformRole != identity.PlatformRoleAdmin ||
+		identity.Status(rawStatus) != identity.StatusActive ||
+		emailVerifiedAt == nil ||
+		deletedAt != nil {
+		return appcreateidentity.ErrActorForbidden
+	}
+
 	return nil
 }
 
