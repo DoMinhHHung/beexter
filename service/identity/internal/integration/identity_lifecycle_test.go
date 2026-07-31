@@ -4,7 +4,6 @@ package integration
 
 import (
 	"context"
-	"fmt"
 	"net/netip"
 	"os"
 	"strings"
@@ -26,18 +25,11 @@ import (
 )
 
 func TestSoftDeleteReactivationAndCleanup(t *testing.T) {
-	if strings.TrimSpace(os.Getenv("IDENTITY_INTEGRATION_TEST")) != "1" {
-		t.Skip("set IDENTITY_INTEGRATION_TEST=1 and use isolated PostgreSQL/Redis instances")
-	}
+	requireIntegrationTests(t)
 
-	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_DIRECT_URL"))
-	if databaseURL == "" {
-		databaseURL = strings.TrimSpace(os.Getenv("DATABASE_URL"))
-	}
-	redisAddress := strings.TrimSpace(os.Getenv("REDIS_ADDR"))
-	if databaseURL == "" || redisAddress == "" {
-		t.Skip("DATABASE_DIRECT_URL or DATABASE_URL and REDIS_ADDR are required")
-	}
+	databaseURL := requireIntegrationDatabaseURL(t)
+	redisAddress := requireIntegrationRedisAddress(t)
+	redisDatabase := requireIntegrationRedisDatabase(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -46,7 +38,7 @@ func TestSoftDeleteReactivationAndCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open PostgreSQL: %v", err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatalf("ping PostgreSQL: %v", err)
 	}
@@ -55,9 +47,9 @@ func TestSoftDeleteReactivationAndCleanup(t *testing.T) {
 		Addr:     redisAddress,
 		Username: os.Getenv("REDIS_USERNAME"),
 		Password: os.Getenv("REDIS_PASSWORD"),
-		DB:       integrationRedisDB(),
+		DB:       redisDatabase,
 	})
-	defer func() { _ = redisClient.Close() }()
+	t.Cleanup(func() { _ = redisClient.Close() })
 	if err := redisClient.Ping(ctx).Err(); err != nil {
 		t.Fatalf("ping Redis: %v", err)
 	}
@@ -242,12 +234,6 @@ func TestSoftDeleteReactivationAndCleanup(t *testing.T) {
 	if stats.LoginAttemptsDeleted < 1 {
 		t.Fatalf("expected old login attempt cleanup, stats=%+v", stats)
 	}
-}
-
-func integrationRedisDB() int {
-	var database int
-	_, _ = fmt.Sscanf(strings.TrimSpace(os.Getenv("REDIS_DB")), "%d", &database)
-	return database
 }
 
 type allowDeleteLifecycle struct{}

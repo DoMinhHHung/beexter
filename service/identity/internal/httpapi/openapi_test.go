@@ -19,10 +19,17 @@ func TestEmbeddedOpenAPIDocumentsFinalSurface(t *testing.T) {
 		[]byte("platform_role:"),
 		[]byte("enum: [VICE_ADMIN]"),
 		[]byte("const: RS256"),
+		[]byte("active signing key is first"),
+		[]byte("verification-only keys"),
+		[]byte("minItems: 1"),
 	} {
 		if !bytes.Contains(openAPISpec, route) {
 			t.Fatalf("OpenAPI spec missing %q", route)
 		}
+	}
+
+	if bytes.Contains(openAPISpec, []byte("maxItems: 1")) {
+		t.Fatal("OpenAPI JWKS schema must allow retained verification keys")
 	}
 
 	for _, legacy := range [][]byte{

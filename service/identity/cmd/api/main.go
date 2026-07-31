@@ -746,6 +746,31 @@ func newAccessTokenService(
 		return nil, fmt.Errorf("load access-token private key: %w", err)
 	}
 
+	verificationKeys := make(
+		[]accesstoken.VerificationKey,
+		0,
+		len(tokenConfig.AdditionalPublicKeys),
+	)
+	for index, configuredKey := range tokenConfig.AdditionalPublicKeys {
+		publicKey, loadErr := accesstoken.LoadPublicKey(
+			configuredKey.PublicKeyPath,
+		)
+		if loadErr != nil {
+			return nil, fmt.Errorf(
+				"load access-token verification key %d: %w",
+				index,
+				loadErr,
+			)
+		}
+		verificationKeys = append(
+			verificationKeys,
+			accesstoken.VerificationKey{
+				KeyID:     configuredKey.KeyID,
+				PublicKey: publicKey,
+			},
+		)
+	}
+
 	service, err := accesstoken.New(
 		privateKey,
 		accesstoken.Config{
@@ -754,6 +779,7 @@ func newAccessTokenService(
 			KeyID:            tokenConfig.KeyID,
 			AccessTokenTTL:   tokenConfig.AccessTokenTTL,
 			AllowedClockSkew: tokenConfig.AllowedClockSkew,
+			VerificationKeys: verificationKeys,
 		},
 	)
 	if err != nil {

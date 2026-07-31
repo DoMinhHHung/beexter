@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"reflect"
 	"strings"
 	"sync"
@@ -32,6 +33,7 @@ var (
 	testKeysOnce sync.Once
 	testKey      *rsa.PrivateKey
 	testWrongKey *rsa.PrivateKey
+	testOldKey   *rsa.PrivateKey
 	testKeysErr  error
 	tokenTestNow = time.Date(2026, time.July, 30, 12, 0, 0, 987654321, time.UTC)
 )
@@ -83,6 +85,86 @@ func TestRS256IssueAndVerify(t *testing.T) {
 				t.Fatalf("verified claims = %+v, want %+v", verified, want)
 			}
 		})
+	}
+}
+
+func TestRS256VerifiesTokenSignedBySupplementalPublicKey(t *testing.T) {
+	t.Parallel()
+
+	activePrivateKey, _ := testRSAKeys(t)
+	oldPrivateKey := testOldRSAKey(t)
+
+	activeConfig := validConfig()
+	activeConfig.VerificationKeys = []VerificationKey{{
+		KeyID:     "identity-signing-2026-06",
+		PublicKey: &oldPrivateKey.PublicKey,
+	}}
+	activeService, err := New(activePrivateKey, activeConfig)
+	if err != nil {
+		t.Fatalf("create active service: %v", err)
+	}
+
+	oldConfig := validConfig()
+	oldConfig.KeyID = "identity-signing-2026-06"
+	oldService, err := New(oldPrivateKey, oldConfig)
+	if err != nil {
+		t.Fatalf("create old service: %v", err)
+	}
+	oldToken, _, err := oldService.Issue(validClaims(identity.PlatformRoleNone))
+	if err != nil {
+		t.Fatalf("issue old token: %v", err)
+	}
+
+	verified, err := activeService.Verify(oldToken, tokenTestNow)
+	if err != nil {
+		t.Fatalf("verify old token: %v", err)
+	}
+	if verified.Subject != testSubject || verified.JTI != testJTI {
+		t.Fatalf("unexpected verified old token: %+v", verified)
+	}
+
+	newToken, _, err := activeService.Issue(validClaims(identity.PlatformRoleNone))
+	if err != nil {
+		t.Fatalf("issue active token: %v", err)
+	}
+	newHeader := decodeSegmentMap(t, strings.Split(newToken, ".")[0])
+	if newHeader["kid"] != testKeyID {
+		t.Fatalf("new token kid = %#v, want %q", newHeader["kid"], testKeyID)
+	}
+	if _, err := activeService.Verify(newToken, tokenTestNow); err != nil {
+		t.Fatalf("active public key did not verify new token: %v", err)
+	}
+}
+
+func TestRS256CopiesSupplementalPublicKeys(t *testing.T) {
+	t.Parallel()
+
+	activePrivateKey, _ := testRSAKeys(t)
+	oldPrivateKey := testOldRSAKey(t)
+	oldToken := signRS256(
+		t,
+		oldPrivateKey,
+		"old-key",
+		validWireClaims(identity.PlatformRoleNone),
+	)
+	configuredPublicKey := &rsa.PublicKey{
+		N: new(big.Int).Set(oldPrivateKey.PublicKey.N),
+		E: oldPrivateKey.PublicKey.E,
+	}
+	config := validConfig()
+	config.VerificationKeys = []VerificationKey{{
+		KeyID:     "old-key",
+		PublicKey: configuredPublicKey,
+	}}
+	service, err := New(activePrivateKey, config)
+	if err != nil {
+		t.Fatalf("create service: %v", err)
+	}
+
+	configuredPublicKey.N.SetInt64(3)
+	configuredPublicKey.E = 3
+	if _, err := service.Verify(oldToken, tokenTestNow); err != nil {
+		t.Fatalf("caller mutation changed cached verification key: %v", err)
 	}
 }
 
@@ -200,6 +282,28 @@ func TestRS256RejectsHeaderAndTrustMismatches(t *testing.T) {
 					jwt.SigningMethodRS256,
 					validWireClaims(identity.PlatformRoleNone),
 				)
+				return mustSign(t, token, privateKey)
+			},
+		},
+		{
+			name: "blank kid",
+			issue: func(t *testing.T) string {
+				token := jwt.NewWithClaims(
+					jwt.SigningMethodRS256,
+					validWireClaims(identity.PlatformRoleNone),
+				)
+				token.Header["kid"] = " \t "
+				return mustSign(t, token, privateKey)
+			},
+		},
+		{
+			name: "non-string kid",
+			issue: func(t *testing.T) string {
+				token := jwt.NewWithClaims(
+					jwt.SigningMethodRS256,
+					validWireClaims(identity.PlatformRoleNone),
+				)
+				token.Header["kid"] = 42
 				return mustSign(t, token, privateKey)
 			},
 		},
@@ -491,8 +595,20 @@ func TestRS256RejectsInvalidUUIDsAndPlatformRoles(t *testing.T) {
 			mutate: func(c *tokenClaims) { c.DeviceID = "not-a-uuid" },
 		},
 		{
+			name: "device ID is UUIDv4",
+			mutate: func(c *tokenClaims) {
+				c.DeviceID = "7b9c7f9a-4ea1-4d24-a573-6915ea8c3933"
+			},
+		},
+		{
 			name:   "JTI is invalid",
 			mutate: func(c *tokenClaims) { c.ID = "not-a-uuid" },
+		},
+		{
+			name: "JTI is UUIDv4",
+			mutate: func(c *tokenClaims) {
+				c.ID = "7b9c7f9a-4ea1-4d24-a573-6915ea8c3933"
+			},
 		},
 		{
 			name: "unknown platform role",
@@ -770,9 +886,19 @@ func testRSAKeys(t *testing.T) (*rsa.PrivateKey, *rsa.PrivateKey) {
 			return
 		}
 		testWrongKey, testKeysErr = rsa.GenerateKey(rand.Reader, minimumRSAKeyBits)
+		if testKeysErr != nil {
+			return
+		}
+		testOldKey, testKeysErr = rsa.GenerateKey(rand.Reader, minimumRSAKeyBits)
 	})
 	if testKeysErr != nil {
 		t.Fatalf("generate test RSA keys: %v", testKeysErr)
 	}
 	return testKey, testWrongKey
+}
+
+func testOldRSAKey(t *testing.T) *rsa.PrivateKey {
+	t.Helper()
+	testRSAKeys(t)
+	return testOldKey
 }

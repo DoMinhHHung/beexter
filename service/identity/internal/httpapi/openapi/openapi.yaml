@@ -41,8 +41,11 @@ paths:
     get:
       tags: [Authentication]
       operationId: getJWKS
-      summary: Get the access-token verification key.
-      description: Returns the single RSA public key used to verify Identity Service access tokens.
+      summary: Get the access-token verification keys.
+      description: |
+        Returns the RSA public keys accepted for Identity Service access-token
+        verification. The active signing key is first, followed by retained
+        verification-only keys during a rotation overlap.
       security: []
       responses:
         '200':
@@ -718,7 +721,7 @@ components:
         keys:
           type: array
           minItems: 1
-          maxItems: 1
+          description: Active signing key first, followed by retained verification-only keys.
           items: {$ref: '#/components/schemas/RSAJWK'}
     RSAJWK:
       type: object

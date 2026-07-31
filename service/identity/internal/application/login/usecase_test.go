@@ -72,7 +72,8 @@ func TestUseCaseLogsInAndRecordsSuccess(t *testing.T) {
 	if output.AccessToken != "access-token" ||
 		output.RefreshToken != "refresh-token" ||
 		output.DeviceID != testDeviceID ||
-		output.User.ID != testUserID {
+		output.User.ID != testUserID ||
+		output.User.PlatformRole != identity.PlatformRoleAdmin {
 		t.Fatalf("unexpected output: %+v", output)
 	}
 
@@ -284,7 +285,7 @@ func validAccount() identity.Identity {
 		ID:            testUserID,
 		Email:         "user@example.com",
 		PasswordHash:  "$argon2id$stored",
-		PlatformRole:  identity.PlatformRoleNone,
+		PlatformRole:  identity.PlatformRoleAdmin,
 		Status:        identity.StatusActive,
 		EmailVerified: true,
 	}
@@ -380,7 +381,9 @@ func (*fakeAccessTokenIssuer) Issue(
 ) (string, time.Time, error) {
 	if claims.Subject != testUserID ||
 		claims.DeviceID != testDeviceID ||
-		claims.JTI != testAccessJTI {
+		claims.PlatformRole != identity.PlatformRoleAdmin ||
+		claims.JTI != testAccessJTI ||
+		!claims.IssuedAt.Equal(testNow) {
 		return "", time.Time{}, errors.New("unexpected claims")
 	}
 	return "access-token", testNow.Add(time.Hour), nil
