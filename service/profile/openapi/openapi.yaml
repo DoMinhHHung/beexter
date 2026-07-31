@@ -1,0 +1,83 @@
+openapi: 3.1.0
+info:
+  title: Beexster Profile Service Bootstrap API
+  version: 0.1.0
+  description: Liveness and PostgreSQL readiness endpoints for the Profile Service bootstrap.
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Check process liveness
+      responses:
+        "200":
+          description: The process is alive. This endpoint does not query PostgreSQL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              examples:
+                healthy:
+                  value:
+                    status: ok
+  /ready:
+    get:
+      operationId: getReadiness
+      summary: Check PostgreSQL readiness
+      responses:
+        "200":
+          description: PostgreSQL is reachable within the configured readiness timeout.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              examples:
+                ready:
+                  value:
+                    status: ready
+        "503":
+          description: PostgreSQL is unavailable or the readiness check timed out.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unavailable:
+                  value:
+                    error:
+                      code: dependency_unavailable
+                      message: service is not ready
+                    request_id: 2f63850ef3414a3196858a3d1f536c7f
+components:
+  schemas:
+    StatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: Sanitized service status.
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+        request_id:
+          type: string
+          description: Request correlation identifier when available.
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+          description: Sanitized client-facing message with no dependency details.

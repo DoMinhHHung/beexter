@@ -1,0 +1,160 @@
+name: Profile CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "service/profile/**"
+      - ".github/workflows/profile-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "service/profile/**"
+      - ".github/workflows/profile-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: profile-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Format, vet, test, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: service/profile
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: service/profile/go.mod
+          cache-dependency-path: service/profile/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify module files
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with race detector
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Build
+        run: go build ./...
+
+  postgres-integration:
+    name: PostgreSQL integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: service/profile
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: profile_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d profile_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: service/profile/go.mod
+          cache-dependency-path: service/profile/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run isolated integration tests
+        env:
+          PROFILE_INTEGRATION_TEST: "1"
+          DATABASE_DIRECT_URL: postgres://postgres:postgres@127.0.0.1:5432/profile_test?sslmode=disable
+        run: go test -tags=integration -count=1 -timeout=5m -v ./internal/integration
+
+      - name: Smoke test startup, probes, and graceful shutdown
+        env:
+          HTTP_ADDR: 127.0.0.1:18080
+          DATABASE_DIRECT_URL: postgres://postgres:postgres@127.0.0.1:5432/profile_test?sslmode=disable
+          POSTGRES_CONNECT_TIMEOUT: 5s
+          POSTGRES_OPERATION_TIMEOUT: 2s
+          HTTP_SHUTDOWN_TIMEOUT: 5s
+          LOG_LEVEL: info
+        run: |
+          set -euo pipefail
+
+          binary="${RUNNER_TEMP}/profile-service"
+          service_log="${RUNNER_TEMP}/profile-service.log"
+          health_response="${RUNNER_TEMP}/profile-health.json"
+          ready_response="${RUNNER_TEMP}/profile-ready.json"
+
+          go build -o "${binary}" ./cmd/api
+          "${binary}" >"${service_log}" 2>&1 &
+          service_pid=$!
+
+          cleanup() {
+            if kill -0 "${service_pid}" 2>/dev/null; then
+              kill -TERM "${service_pid}" 2>/dev/null || true
+              wait "${service_pid}" || true
+            fi
+          }
+          trap cleanup EXIT
+
+          started=0
+          for _ in $(seq 1 30); do
+            if curl --fail --silent --show-error \
+              http://127.0.0.1:18080/health >"${health_response}"; then
+              started=1
+              break
+            fi
+            if ! kill -0 "${service_pid}" 2>/dev/null; then
+              cat "${service_log}"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [ "${started}" -ne 1 ]; then
+            cat "${service_log}"
+            exit 1
+          fi
+
+          grep -Fx '{"status":"ok"}' "${health_response}"
+          curl --fail --silent --show-error \
+            http://127.0.0.1:18080/ready >"${ready_response}"
+          grep -Fx '{"status":"ready"}' "${ready_response}"
+
+          kill -TERM "${service_pid}"
+          wait "${service_pid}"
+          trap - EXIT
+
+          grep -q '"msg":"profile service stopped gracefully"' "${service_log}"
