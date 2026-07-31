@@ -8,17 +8,22 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	authenticateapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/authenticate"
 	changepasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/changepassword"
+	cleanupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/cleanup"
 	createidentityapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
+	deleteaccountapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/deleteaccount"
 	forgotpasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/forgotpassword"
 	getmeapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/getme"
 	loginapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
+	loginhistoryapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/loginhistory"
 	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
 	refreshapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
+	requestreactivationapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/requestreactivation"
 	resendverificationapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/resendverification"
 	resetpasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/resetpassword"
 	sessionmanagementapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/sessionmanagement"
@@ -77,6 +82,16 @@ func run(logger *slog.Logger) error {
 	changePasswordConfig, err := config.LoadChangePassword()
 	if err != nil {
 		return fmt.Errorf("load change-password config: %w", err)
+	}
+
+	accountLifecycleConfig, err := config.LoadAccountLifecycle()
+	if err != nil {
+		return fmt.Errorf("load account-lifecycle config: %w", err)
+	}
+
+	cleanupConfig, err := config.LoadCleanup()
+	if err != nil {
+		return fmt.Errorf("load cleanup config: %w", err)
 	}
 
 	applicationContext, stopApplication := signal.NotifyContext(
@@ -221,6 +236,34 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create change-password rate limiter: %w", err)
 	}
 
+	deleteAccountLimiter, err := ratelimit.NewDeleteAccountLimiter(
+		slidingWindowLimiter,
+		rateLimitKeys,
+		ratelimit.DeleteAccountPolicy{
+			IPLimit:        accountLifecycleConfig.DeleteAccount.IPLimit,
+			IPWindow:       accountLifecycleConfig.DeleteAccount.IPWindow,
+			IdentityLimit:  accountLifecycleConfig.DeleteAccount.IdentityLimit,
+			IdentityWindow: accountLifecycleConfig.DeleteAccount.IdentityWindow,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("create delete-account rate limiter: %w", err)
+	}
+
+	reactivationLimiter, err := ratelimit.NewReactivationLimiter(
+		slidingWindowLimiter,
+		rateLimitKeys,
+		ratelimit.ReactivationPolicy{
+			IPLimit:     accountLifecycleConfig.Reactivation.IPLimit,
+			IPWindow:    accountLifecycleConfig.Reactivation.IPWindow,
+			EmailLimit:  accountLifecycleConfig.Reactivation.EmailLimit,
+			EmailWindow: accountLifecycleConfig.Reactivation.EmailWindow,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("create reactivation rate limiter: %w", err)
+	}
+
 	signupRepository, err := postgres.NewSignupRepository(database)
 	if err != nil {
 		return fmt.Errorf("create signup repository: %w", err)
@@ -282,6 +325,26 @@ func run(logger *slog.Logger) error {
 	changePasswordRepository, err := postgres.NewChangePasswordRepository(database)
 	if err != nil {
 		return fmt.Errorf("create change-password repository: %w", err)
+	}
+
+	deleteAccountRepository, err := postgres.NewDeleteAccountRepository(database)
+	if err != nil {
+		return fmt.Errorf("create delete-account repository: %w", err)
+	}
+
+	reactivationRepository, err := postgres.NewReactivationRepository(database)
+	if err != nil {
+		return fmt.Errorf("create reactivation repository: %w", err)
+	}
+
+	loginHistoryRepository, err := postgres.NewLoginHistoryRepository(database)
+	if err != nil {
+		return fmt.Errorf("create login-history repository: %w", err)
+	}
+
+	cleanupRepository, err := postgres.NewCleanupRepository(database)
+	if err != nil {
+		return fmt.Errorf("create cleanup repository: %w", err)
 	}
 
 	passwordHasher := passwordhash.New()
@@ -437,6 +500,34 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create change-password use case: %w", err)
 	}
 
+	deleteAccountUseCase, err := deleteaccountapp.New(
+		deleteAccountRepository,
+		passwordHasher,
+		deleteAccountLimiter,
+		sessionStore,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("create delete-account use case: %w", err)
+	}
+
+	reactivationUseCase, err := requestreactivationapp.New(
+		reactivationRepository,
+		passwordHasher,
+		identifierGenerator,
+		reactivationLimiter,
+		dummyPasswordHash,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("create reactivation use case: %w", err)
+	}
+
+	loginHistoryUseCase, err := loginhistoryapp.New(loginHistoryRepository)
+	if err != nil {
+		return fmt.Errorf("create login-history use case: %w", err)
+	}
+
 	emailCatalog, err := emaildelivery.NewCatalog()
 	if err != nil {
 		return fmt.Errorf("create email translation catalog: %w", err)
@@ -515,6 +606,23 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create outbox worker: %w", err)
 	}
 
+	cleanupWorker, err := cleanupapp.NewWorker(
+		cleanupRepository,
+		logger,
+		cleanupapp.Config{
+			Interval:              cleanupConfig.Interval,
+			DatabaseTimeout:       cleanupConfig.DatabaseTimeout,
+			BatchSize:             cleanupConfig.BatchSize,
+			LoginAttemptRetention: cleanupConfig.LoginAttemptRetention,
+			TokenRetention:        cleanupConfig.TokenRetention,
+			OutboxRetention:       cleanupConfig.OutboxRetention,
+		},
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("create cleanup worker: %w", err)
+	}
+
 	handler := httpapi.NewRouter(
 		logger,
 		database,
@@ -530,6 +638,9 @@ func run(logger *slog.Logger) error {
 			ChangePassword:           changePasswordUseCase,
 			Me:                       meUseCase,
 			CreatePrivilegedIdentity: privilegedIdentityUseCase,
+			Reactivation:             reactivationUseCase,
+			DeleteAccount:            deleteAccountUseCase,
+			LoginHistory:             loginHistoryUseCase,
 			Authenticator:            authenticateUseCase,
 			Sessions:                 sessionManagementService,
 		},
@@ -544,10 +655,15 @@ func run(logger *slog.Logger) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	workerDone := make(chan struct{})
+	var workers sync.WaitGroup
+	workers.Add(2)
 	go func() {
-		defer close(workerDone)
+		defer workers.Done()
 		outboxWorker.Run(applicationContext)
+	}()
+	go func() {
+		defer workers.Done()
+		cleanupWorker.Run(applicationContext)
 	}()
 
 	serverError := make(chan error, 1)
@@ -602,17 +718,23 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
+	workersDone := make(chan struct{})
+	go func() {
+		workers.Wait()
+		close(workersDone)
+	}()
+
 	workerShutdownTimer := time.NewTimer(cfg.HTTP.ShutdownTimeout)
 	defer workerShutdownTimer.Stop()
 
 	select {
-	case <-workerDone:
-		logger.Info("outbox worker stopped gracefully")
+	case <-workersDone:
+		logger.Info("background workers stopped gracefully")
 
 	case <-workerShutdownTimer.C:
 		runErr = errors.Join(
 			runErr,
-			errors.New("outbox worker shutdown timed out"),
+			errors.New("background worker shutdown timed out"),
 		)
 	}
 

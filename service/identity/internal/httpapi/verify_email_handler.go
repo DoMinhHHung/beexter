@@ -27,6 +27,7 @@ type verifyEmailResponse struct {
 
 type verifyEmailResponseData struct {
 	EmailVerified bool `json:"email_verified"`
+	Reactivated   bool `json:"reactivated"`
 }
 
 func verifyEmailHandler(
@@ -40,61 +41,40 @@ func verifyEmailHandler(
 				r,
 				domain.WrapError(
 					domain.ErrInternal,
-					errors.New(
-						"verify-email executor is not initialized",
-					),
+					errors.New("verify-email executor is not initialized"),
 				),
 				logger,
 			)
-
 			return
 		}
 
 		var request verifyEmailRequest
-
-		if err := decodeJSONBody(
-			w,
-			r,
-			&request,
-		); err != nil {
+		if err := decodeJSONBody(w, r, &request); err != nil {
 			writeApplicationError(
 				w,
 				r,
-				domain.WrapError(
-					domain.ErrInvalidInput,
-					err,
-				),
+				domain.WrapError(domain.ErrInvalidInput, err),
 				logger,
 			)
-
 			return
 		}
 
 		output, err := executor.Execute(
 			r.Context(),
-			appverifyemail.Input{
-				Token: request.Token,
-			},
+			appverifyemail.Input{Token: request.Token},
 		)
 		if err != nil {
-			writeApplicationError(
-				w,
-				r,
-				err,
-				logger,
-			)
-
+			writeApplicationError(w, r, err, logger)
 			return
 		}
 
 		writeJSON(
 			w,
 			http.StatusOK,
-			verifyEmailResponse{
-				Data: verifyEmailResponseData{
-					EmailVerified: output.EmailVerified,
-				},
-			},
+			verifyEmailResponse{Data: verifyEmailResponseData{
+				EmailVerified: output.EmailVerified,
+				Reactivated:   output.Reactivated,
+			}},
 			logger,
 		)
 	}

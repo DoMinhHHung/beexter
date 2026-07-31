@@ -28,6 +28,9 @@ type RouterDependencies struct {
 	ChangePassword           ChangePasswordExecutor
 	Me                       GetMeExecutor
 	CreatePrivilegedIdentity CreatePrivilegedIdentityExecutor
+	Reactivation             ReactivationExecutor
+	DeleteAccount            DeleteAccountExecutor
+	LoginHistory             LoginHistoryExecutor
 	Authenticator            Authenticator
 	Sessions                 SessionManager
 }
@@ -49,6 +52,9 @@ func NewRouter(
 		"GET /ready",
 		readinessHandler(logger, database, cache),
 	)
+
+	mux.HandleFunc("GET /openapi.yaml", openAPIHandler(logger))
+	mux.HandleFunc("GET /docs", swaggerUIHandler(logger))
 
 	mux.HandleFunc(
 		"POST /v1/auth/signup",
@@ -92,6 +98,11 @@ func NewRouter(
 	)
 
 	mux.HandleFunc(
+		"POST /v1/auth/request-reactivation",
+		requestReactivationHandler(logger, dependencies.Reactivation),
+	)
+
+	mux.HandleFunc(
 		"POST /v1/auth/reset-password",
 		resetPasswordHandler(
 			logger,
@@ -125,6 +136,16 @@ func NewRouter(
 	mux.Handle(
 		"GET /v1/me",
 		protected(meHandler(logger, dependencies.Me)),
+	)
+
+	mux.Handle(
+		"DELETE /v1/me",
+		protected(deleteAccountHandler(logger, dependencies.DeleteAccount)),
+	)
+
+	mux.Handle(
+		"GET /v1/me/login-history",
+		protected(loginHistoryHandler(logger, dependencies.LoginHistory)),
 	)
 
 	mux.Handle(

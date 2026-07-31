@@ -36,6 +36,8 @@ const (
 	ActionResendVerification Action = "resend_verification"
 	ActionResetPassword      Action = "reset_password"
 	ActionChangePassword     Action = "change_password"
+	ActionDeleteAccount      Action = "delete_account"
+	ActionReactivation       Action = "reactivation"
 )
 
 func (a Action) IsValid() bool {
@@ -45,7 +47,9 @@ func (a Action) IsValid() bool {
 		ActionForgotPassword,
 		ActionResendVerification,
 		ActionResetPassword,
-		ActionChangePassword:
+		ActionChangePassword,
+		ActionDeleteAccount,
+		ActionReactivation:
 		return true
 
 	default:
