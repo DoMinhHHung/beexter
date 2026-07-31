@@ -1,0 +1,12 @@
+{
+  "Subject": "Xác minh địa chỉ email BeexSter",
+  "Title": "Xác minh địa chỉ email",
+  "Greeting": "Xin chào bạn,",
+  "Message1": "Cảm ơn bạn đã đăng ký tài khoản BeexSter.",
+  "Message2": "Vui lòng nhấn nút bên dưới để xác minh địa chỉ email và hoàn tất quá trình đăng ký.",
+  "ButtonText": "Xác minh email",
+  "ExpireMsg": "Liên kết sẽ hết hạn lúc",
+  "FallbackMsg": "Nếu nút không hoạt động, vui lòng sao chép đường dẫn sau vào trình duyệt:",
+  "IgnoreMsg": "Nếu bạn không thực hiện yêu cầu đăng ký này, vui lòng bỏ qua email.",
+  "FooterRight": "Mọi quyền được bảo lưu."
+}

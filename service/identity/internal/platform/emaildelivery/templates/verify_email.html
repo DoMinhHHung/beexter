@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="{{.Locale}}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.I18n.Title}} – BeexSter</title>
+</head>
+<body style="margin:0;padding:0;background:#F7F3EB;font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#3F2E1F;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+       style="background:#F7F3EB;padding:40px 16px;">
+    <tr>
+        <td align="center">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                   style="max-width:600px;background:#FFFFFF;border-radius:8px;overflow:hidden;box-shadow:0 4px 16px rgba(63,46,31,0.08);">
+                <tr>
+                    <td style="padding:32px 40px;background:#F5B041;border-bottom:4px solid #D4A017;text-align:center;">
+                        <div style="font-size:24px;font-weight:700;color:#FFFFFF;letter-spacing:1px;text-transform:uppercase;">
+                            BeexSter
+                        </div>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:40px 40px 36px;">
+                        <h1 style="margin:0 0 24px;font-size:22px;line-height:1.4;color:#3F2E1F;font-weight:700;text-align:center;">
+                            {{.I18n.Title}}
+                        </h1>
+
+                        <p style="margin:0 0 12px;font-size:15px;line-height:1.7;color:#4A3B2A;text-align:center;">
+                            {{.I18n.Greeting}}
+                        </p>
+
+                        <p style="margin:0 0 12px;font-size:15px;line-height:1.7;color:#4A3B2A;text-align:center;">
+                            {{.I18n.Message1}}
+                        </p>
+
+                        <p style="margin:0 0 32px;font-size:15px;line-height:1.7;color:#4A3B2A;text-align:center;">
+                            {{.I18n.Message2}}
+                        </p>
+
+                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 32px;">
+                            <tr>
+                                <td align="center">
+                                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                        <tr>
+                                            <td style="border-radius:6px;background:#D4A017;">
+                                                <a href="{{.VerificationURL}}"
+                                                   style="display:inline-block;padding:14px 32px;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:600;">
+                                                    {{.I18n.ButtonText}}
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#6B5B4B;text-align:center;">
+                            {{.I18n.ExpireMsg}} <strong style="color:#3F2E1F;">{{.ExpiresAt}}</strong>.
+                        </p>
+
+                        <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#6B5B4B;text-align:center;">
+                            {{.I18n.FallbackMsg}}
+                        </p>
+
+                        <div style="background:#F7F3EB;padding:14px;border-radius:6px;margin:0 0 28px;text-align:center;">
+                            <p style="margin:0;word-break:break-all;font-size:13px;line-height:1.6;">
+                                <a href="{{.VerificationURL}}" style="color:#B8860B;text-decoration:none;">
+                                    {{.VerificationURL}}
+                                </a>
+                            </p>
+                        </div>
+
+                        <hr style="margin:0 0 24px;border:0;border-top:1px solid #EDE4D4;">
+
+                        <p style="margin:0;font-size:13px;line-height:1.6;color:#8A7A6A;text-align:center;">
+                            {{.I18n.IgnoreMsg}}
+                        </p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:24px 40px;background:#FAF6F0;border-top:1px solid #EDE4D4;text-align:center;">
+                        <p style="margin:0;font-size:12px;color:#9A8A7A;line-height:1.5;">
+                            © {{.CurrentYear}} BeexSter. {{.I18n.FooterRight}}
+                        </p>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</body>
+</html>

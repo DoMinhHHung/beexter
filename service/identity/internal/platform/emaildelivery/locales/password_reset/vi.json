@@ -1,0 +1,12 @@
+{
+  "Subject": "Đặt lại mật khẩu BeexSter",
+  "Title": "Đặt lại mật khẩu",
+  "Greeting": "Xin chào bạn,",
+  "Message1": "Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản BeexSter của bạn.",
+  "Message2": "Vui lòng nhấn nút bên dưới để chọn mật khẩu mới.",
+  "ButtonText": "Đặt lại mật khẩu",
+  "ExpireMsg": "Liên kết sẽ hết hạn lúc",
+  "FallbackMsg": "Nếu nút không hoạt động, vui lòng sao chép đường dẫn sau vào trình duyệt:",
+  "IgnoreMsg": "Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.",
+  "FooterRight": "Mọi quyền được bảo lưu."
+}

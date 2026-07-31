@@ -1,0 +1,686 @@
+openapi: 3.1.0
+info:
+  title: Beexter Identity Service API
+  version: 1.0.0
+  description: |
+    Identity lifecycle, email/password authentication, link-based verification,
+    password recovery, refresh-token rotation, session management, basic RBAC,
+    soft deletion, reactivation and login history.
+servers:
+  - url: http://localhost:8080
+security: []
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Identity
+  - name: Sessions
+  - name: Administration
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: health
+      responses:
+        '200':
+          description: Process is alive.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StatusResponse'}
+  /ready:
+    get:
+      tags: [Health]
+      operationId: readiness
+      responses:
+        '200':
+          description: PostgreSQL and Redis are reachable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StatusResponse'}
+        '503': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/signup:
+    post:
+      tags: [Authentication]
+      operationId: signup
+      parameters:
+        - {$ref: '#/components/parameters/AcceptLanguage'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SignupRequest'}
+      responses:
+        '201':
+          description: Identity created; verification email queued.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IdentityCreatedResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '409': {$ref: '#/components/responses/EmailExists'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LoginRequest'}
+      responses:
+        '200':
+          description: Authentication succeeded.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LoginResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '401': {$ref: '#/components/responses/InvalidCredentials'}
+        '403': {$ref: '#/components/responses/ForbiddenAuthentication'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefreshRequest'}
+      responses:
+        '200':
+          description: Refresh token rotated.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RefreshResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '401': {$ref: '#/components/responses/InvalidToken'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/logout:
+    post:
+      tags: [Sessions]
+      operationId: logoutCurrent
+      security: [{bearerAuth: []}]
+      responses:
+        '204': {description: Current refresh session revoked.}
+        '401': {$ref: '#/components/responses/InvalidToken'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/logout-all:
+    post:
+      tags: [Sessions]
+      operationId: logoutAll
+      security: [{bearerAuth: []}]
+      responses:
+        '204': {description: All refresh sessions revoked.}
+        '401': {$ref: '#/components/responses/InvalidToken'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/verify-email:
+    post:
+      tags: [Authentication]
+      operationId: verifyEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TokenRequest'}
+      responses:
+        '200':
+          description: Email verified; a soft-deleted identity may also be reactivated.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VerifyEmailResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '401': {$ref: '#/components/responses/InvalidToken'}
+        '403': {$ref: '#/components/responses/ForbiddenAuthentication'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/resend-verification:
+    post:
+      tags: [Authentication]
+      operationId: resendVerification
+      parameters:
+        - {$ref: '#/components/parameters/AcceptLanguage'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EmailRequest'}
+      responses:
+        '202':
+          description: Request accepted without disclosing account existence.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcceptedResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/forgot-password:
+    post:
+      tags: [Authentication]
+      operationId: forgotPassword
+      parameters:
+        - {$ref: '#/components/parameters/AcceptLanguage'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EmailRequest'}
+      responses:
+        '202':
+          description: Request accepted without disclosing account existence.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcceptedResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/resend-password-reset:
+    post:
+      tags: [Authentication]
+      operationId: resendPasswordReset
+      parameters:
+        - {$ref: '#/components/parameters/AcceptLanguage'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EmailRequest'}
+      responses:
+        '202':
+          description: Request accepted without disclosing account existence.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcceptedResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/reset-password:
+    post:
+      tags: [Authentication]
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ResetPasswordRequest'}
+      responses:
+        '200':
+          description: Password reset and refresh sessions revoked.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PasswordResetResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '401': {$ref: '#/components/responses/InvalidToken'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/change-password:
+    put:
+      tags: [Authentication]
+      operationId: changePassword
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangePasswordRequest'}
+      responses:
+        '200':
+          description: Password changed and refresh sessions revoked.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PasswordChangedResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '401': {$ref: '#/components/responses/InvalidCredentials'}
+        '403': {$ref: '#/components/responses/ForbiddenAuthentication'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/auth/request-reactivation:
+    post:
+      tags: [Authentication]
+      operationId: requestReactivation
+      parameters:
+        - {$ref: '#/components/parameters/AcceptLanguage'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReactivationRequest'}
+      responses:
+        '202':
+          description: Request accepted without disclosing account eligibility.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcceptedResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/me:
+    get:
+      tags: [Identity]
+      operationId: getMe
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Current basic identity profile.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MeResponse'}
+        '401': {$ref: '#/components/responses/InvalidToken'}
+        '403': {$ref: '#/components/responses/ForbiddenAuthentication'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    delete:
+      tags: [Identity]
+      operationId: deleteMe
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeleteAccountRequest'}
+      responses:
+        '200':
+          description: Identity soft-deleted, or hard-deleted after three prior soft deletions.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeleteAccountResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '401': {$ref: '#/components/responses/InvalidCredentials'}
+        '403': {$ref: '#/components/responses/ForbiddenAuthentication'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/me/sessions:
+    get:
+      tags: [Sessions]
+      operationId: listSessions
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Active refresh sessions. Raw refresh tokens are never returned.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionsResponse'}
+        '401': {$ref: '#/components/responses/InvalidToken'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/me/sessions/{device_id}:
+    delete:
+      tags: [Sessions]
+      operationId: revokeSession
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/UUIDv7'}
+      responses:
+        '204': {description: Session revoked or already absent.}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '401': {$ref: '#/components/responses/InvalidToken'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/me/login-history:
+    get:
+      tags: [Identity]
+      operationId: loginHistory
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+        - name: before
+          in: query
+          description: RFC3339 cursor from a prior response.
+          schema: {type: string, format: date-time}
+      responses:
+        '200':
+          description: Login attempts associated with the current identity.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LoginHistoryResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '401': {$ref: '#/components/responses/InvalidToken'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/admin/identities:
+    post:
+      tags: [Administration]
+      operationId: createPrivilegedIdentity
+      security: [{bearerAuth: []}]
+      parameters:
+        - {$ref: '#/components/parameters/AcceptLanguage'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PrivilegedIdentityRequest'}
+      responses:
+        '201':
+          description: AGENCY or VICE_ADMIN identity created according to hierarchy.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IdentityCreatedResponse'}
+        '400': {$ref: '#/components/responses/InvalidInput'}
+        '401': {$ref: '#/components/responses/InvalidToken'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/EmailExists'}
+        '500': {$ref: '#/components/responses/InternalError'}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      required: false
+      description: RFC 9110 language preference. Embedded translations currently include en, vi and ja.
+      schema: {type: string, example: 'vi-VN, en;q=0.8'}
+  responses:
+    InvalidInput:
+      description: Invalid request input.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          example: {error: {code: ERR_INVALID_INPUT, message: invalid input, request_id: 0123456789abcdef}}
+    InvalidCredentials:
+      description: Invalid credentials or authentication token.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    InvalidToken:
+      description: Invalid, expired, revoked or reused token.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    ForbiddenAuthentication:
+      description: Email unverified or account inactive.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    Forbidden:
+      description: Role hierarchy does not authorize the operation.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    EmailExists:
+      description: Email already exists.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    RateLimited:
+      description: Sliding-window rate limit exceeded.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    InternalError:
+      description: Internal dependency failure. Sensitive operations fail closed if Redis is unavailable.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+  schemas:
+    UUIDv7:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    Role:
+      type: string
+      enum: [CLIENT, JOB_SEEKER, AGENCY, ADMIN, VICE_ADMIN]
+    PublicRole:
+      type: string
+      enum: [CLIENT, JOB_SEEKER]
+    PrivilegedCreatableRole:
+      type: string
+      enum: [AGENCY, VICE_ADMIN]
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status: {type: string, example: ok}
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+              enum:
+                - ERR_INVALID_INPUT
+                - ERR_EMAIL_ALREADY_EXISTS
+                - ERR_INVALID_CREDENTIALS
+                - ERR_EMAIL_NOT_VERIFIED
+                - ERR_ACCOUNT_INACTIVE
+                - ERR_TOKEN_INVALID
+                - ERR_TOKEN_EXPIRED
+                - ERR_TOKEN_REUSE_DETECTED
+                - ERR_NOT_FOUND
+                - ERR_FORBIDDEN
+                - ERR_RATE_LIMITED
+                - ERR_INTERNAL
+            message: {type: string}
+            request_id: {type: string}
+    SignupRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, role]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        password: {type: string, format: password, minLength: 8, maxLength: 128}
+        role: {$ref: '#/components/schemas/PublicRole'}
+    PrivilegedIdentityRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, role]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        password: {type: string, format: password, minLength: 8, maxLength: 128}
+        role: {$ref: '#/components/schemas/PrivilegedCreatableRole'}
+    IdentityCreatedResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [id, email, role, email_verified]
+          properties:
+            id: {$ref: '#/components/schemas/UUIDv7'}
+            email: {type: string, format: email}
+            role: {$ref: '#/components/schemas/Role'}
+            email_verified: {type: boolean, const: false}
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string, format: password}
+    LoginResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          allOf:
+            - {$ref: '#/components/schemas/TokenPair'}
+            - type: object
+              required: [user]
+              properties:
+                user: {$ref: '#/components/schemas/UserSummary'}
+    TokenPair:
+      type: object
+      required:
+        - access_token
+        - refresh_token
+        - token_type
+        - access_token_expires_at
+        - refresh_token_expires_at
+        - device_id
+      properties:
+        access_token: {type: string}
+        refresh_token: {type: string}
+        token_type: {type: string, const: Bearer}
+        access_token_expires_at: {type: string, format: date-time}
+        refresh_token_expires_at: {type: string, format: date-time}
+        device_id: {$ref: '#/components/schemas/UUIDv7'}
+    UserSummary:
+      type: object
+      required: [id, email, role, email_verified]
+      properties:
+        id: {$ref: '#/components/schemas/UUIDv7'}
+        email: {type: string, format: email}
+        role: {$ref: '#/components/schemas/Role'}
+        email_verified: {type: boolean}
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [refresh_token]
+      properties:
+        refresh_token: {type: string}
+    RefreshResponse:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/TokenPair'}
+    EmailRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: {type: string, format: email}
+    AcceptedResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [accepted]
+          properties:
+            accepted: {type: boolean, const: true}
+    TokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: {$ref: '#/components/schemas/UUIDv7'}
+    VerifyEmailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [email_verified, reactivated]
+          properties:
+            email_verified: {type: boolean, const: true}
+            reactivated: {type: boolean}
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [token, new_password]
+      properties:
+        token: {$ref: '#/components/schemas/UUIDv7'}
+        new_password: {type: string, format: password, minLength: 8, maxLength: 128}
+    PasswordResetResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [password_reset]
+          properties:
+            password_reset: {type: boolean, const: true}
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password: {type: string, format: password, maxLength: 128}
+        new_password: {type: string, format: password, minLength: 8, maxLength: 128}
+    PasswordChangedResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [password_changed]
+          properties:
+            password_changed: {type: boolean, const: true}
+    ReactivationRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string, format: password, maxLength: 128}
+    MeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [id, email, role, status, email_verified, created_at, updated_at]
+          properties:
+            id: {$ref: '#/components/schemas/UUIDv7'}
+            email: {type: string, format: email}
+            role: {$ref: '#/components/schemas/Role'}
+            status: {type: string, enum: [active, inactive]}
+            email_verified: {type: boolean}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+    DeleteAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password]
+      properties:
+        current_password: {type: string, format: password, maxLength: 128}
+    DeleteAccountResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [deleted, hard_deleted, soft_delete_count]
+          properties:
+            deleted: {type: boolean, const: true}
+            hard_deleted: {type: boolean}
+            soft_delete_count: {type: integer, minimum: 1, maximum: 3}
+    SessionsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [sessions]
+          properties:
+            sessions:
+              type: array
+              items:
+                type: object
+                required: [device_id, user_agent, ip_address, created_at, expires_at, last_used_at, current]
+                properties:
+                  device_id: {$ref: '#/components/schemas/UUIDv7'}
+                  user_agent: {type: string}
+                  ip_address: {type: string}
+                  created_at: {type: string, format: date-time}
+                  expires_at: {type: string, format: date-time}
+                  last_used_at: {type: string, format: date-time}
+                  current: {type: boolean}
+    LoginHistoryResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [attempts]
+          properties:
+            attempts:
+              type: array
+              items:
+                type: object
+                required: [id, success, ip_address, user_agent, attempted_at]
+                properties:
+                  id: {$ref: '#/components/schemas/UUIDv7'}
+                  success: {type: boolean}
+                  failure_code: {type: string}
+                  ip_address: {type: string}
+                  user_agent: {type: string}
+                  attempted_at: {type: string, format: date-time}
+            next_before: {type: string, format: date-time}
