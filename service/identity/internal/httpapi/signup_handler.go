@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"net/netip"
 
-	appsignup "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appsignup "github.com/DoMinhHHung/beexster/service/identity/internal/application/signup"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type SignupExecutor interface {
@@ -22,7 +22,6 @@ type SignupExecutor interface {
 type signupRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
-	Role     string `json:"role"`
 }
 
 type signupResponse struct {
@@ -32,7 +31,6 @@ type signupResponse struct {
 type signupResponseData struct {
 	ID            string `json:"id"`
 	Email         string `json:"email"`
-	Role          string `json:"role"`
 	EmailVerified bool   `json:"email_verified"`
 }
 
@@ -98,7 +96,6 @@ func signupHandler(
 			appsignup.Input{
 				Email:     request.Email,
 				Password:  request.Password,
-				Role:      request.Role,
 				Locale:    parseAcceptLanguage(r.Header.Get("Accept-Language")),
 				IPAddress: ipAddress.Unmap(),
 				RequestID: requestID,
@@ -116,7 +113,6 @@ func signupHandler(
 				Data: signupResponseData{
 					ID:            output.ID.String(),
 					Email:         output.Email,
-					Role:          string(output.Role),
 					EmailVerified: false,
 				},
 			},

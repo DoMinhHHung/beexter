@@ -5,20 +5,20 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
-func roleAuthorizationMiddleware(
+func platformRoleAuthorizationMiddleware(
 	logger *slog.Logger,
-	allowedRoles []identity.Role,
+	allowedRoles []identity.PlatformRole,
 	next http.Handler,
 ) http.Handler {
-	allowed := make(map[identity.Role]struct{}, len(allowedRoles))
+	allowed := make(map[identity.PlatformRole]struct{}, len(allowedRoles))
 	configurationValid := next != nil && len(allowedRoles) > 0
 
 	for _, role := range allowedRoles {
-		if !role.IsValid() {
+		if !role.IsAssigned() || !role.IsValid() {
 			configurationValid = false
 			continue
 		}
@@ -33,7 +33,7 @@ func roleAuthorizationMiddleware(
 				r,
 				domain.WrapError(
 					domain.ErrInternal,
-					errors.New("role authorization middleware is not initialized"),
+					errors.New("platform-role authorization middleware is not initialized"),
 				),
 				logger,
 			)
@@ -41,7 +41,8 @@ func roleAuthorizationMiddleware(
 		}
 
 		principal, ok := authenticatedPrincipalFromContext(r.Context())
-		if !ok || principal.UserID.IsZero() || !principal.Role.IsValid() {
+		if !ok || principal.UserID.IsZero() ||
+			!principal.PlatformRole.IsValidOrEmpty() {
 			writeApplicationError(
 				w,
 				r,
@@ -54,7 +55,7 @@ func roleAuthorizationMiddleware(
 			return
 		}
 
-		if _, ok := allowed[principal.Role]; !ok {
+		if _, ok := allowed[principal.PlatformRole]; !ok {
 			writeApplicationError(
 				w,
 				r,

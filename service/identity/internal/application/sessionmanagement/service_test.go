@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const (
@@ -162,10 +162,8 @@ func newSessionService(t *testing.T, store Store) *Service {
 
 func validPrincipal() appauth.Principal {
 	return appauth.Principal{
-		UserID:        sessionManagementUserID,
-		DeviceID:      sessionManagementCurrentDevice,
-		Role:          identity.RoleClient,
-		EmailVerified: true,
+		UserID:   sessionManagementUserID,
+		DeviceID: sessionManagementCurrentDevice,
 	}
 }
 

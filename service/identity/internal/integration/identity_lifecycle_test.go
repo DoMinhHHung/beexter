@@ -11,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	appcleanup "github.com/DoMinhHHung/beexter/service/identity/internal/application/cleanup"
-	appdeleteaccount "github.com/DoMinhHHung/beexter/service/identity/internal/application/deleteaccount"
-	appreactivation "github.com/DoMinhHHung/beexter/service/identity/internal/application/requestreactivation"
-	appverifyemail "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/idgen"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/passwordhash"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/postgres"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/session"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	appcleanup "github.com/DoMinhHHung/beexster/service/identity/internal/application/cleanup"
+	appdeleteaccount "github.com/DoMinhHHung/beexster/service/identity/internal/application/deleteaccount"
+	appreactivation "github.com/DoMinhHHung/beexster/service/identity/internal/application/requestreactivation"
+	appverifyemail "github.com/DoMinhHHung/beexster/service/identity/internal/application/verifyemail"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/idgen"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/passwordhash"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/postgres"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/session"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -79,9 +79,9 @@ func TestSoftDeleteReactivationAndCleanup(t *testing.T) {
 	_, err = pool.Exec(
 		ctx,
 		`INSERT INTO identity.identities (
-			id, email, password_hash, role, status, email_verified_at,
+			id, email, password_hash, platform_role, status, email_verified_at,
 			soft_delete_count, created_at, updated_at
-		) VALUES ($1, $2, $3, 'JOB_SEEKER', 'active', $4, 0, $4, $4)`,
+		) VALUES ($1, $2, $3, NULL, 'active', $4, 0, $4, $4)`,
 		identityID.String(),
 		email,
 		passwordHash,

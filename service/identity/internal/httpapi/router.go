@@ -4,9 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -33,6 +34,8 @@ type RouterDependencies struct {
 	LoginHistory             LoginHistoryExecutor
 	Authenticator            Authenticator
 	Sessions                 SessionManager
+	JWKS                     JWKSProvider
+	TrustedProxyPrefixes     []netip.Prefix
 }
 
 func NewRouter(
@@ -55,6 +58,10 @@ func NewRouter(
 
 	mux.HandleFunc("GET /openapi.yaml", openAPIHandler(logger))
 	mux.HandleFunc("GET /docs", swaggerUIHandler(logger))
+	mux.HandleFunc(
+		"GET /.well-known/jwks.json",
+		jwksHandler(logger, dependencies.JWKS),
+	)
 
 	mux.HandleFunc(
 		"POST /v1/auth/signup",
@@ -158,14 +165,13 @@ func NewRouter(
 		protected(revokeSessionHandler(logger, dependencies.Sessions)),
 	)
 
-	privilegedIdentityCreators := []identity.Role{
-		identity.RoleAdmin,
-		identity.RoleViceAdmin,
+	privilegedIdentityCreators := []identity.PlatformRole{
+		identity.PlatformRoleAdmin,
 	}
 	mux.Handle(
 		"POST /v1/admin/identities",
 		protected(
-			roleAuthorizationMiddleware(
+			platformRoleAuthorizationMiddleware(
 				logger,
 				privilegedIdentityCreators,
 				createPrivilegedIdentityHandler(
@@ -176,7 +182,10 @@ func NewRouter(
 		),
 	)
 
-	return applyMiddleware(logger, mux)
+	return trustedProxyMiddleware(
+		dependencies.TrustedProxyPrefixes,
+		applyMiddleware(logger, mux),
+	)
 }
 
 func healthHandler(logger *slog.Logger) http.HandlerFunc {

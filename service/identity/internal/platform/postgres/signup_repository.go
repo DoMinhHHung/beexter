@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	appsignup "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
+	appsignup "github.com/DoMinhHHung/beexster/service/identity/internal/application/signup"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -23,12 +23,12 @@ INSERT INTO identity.identities (
     id,
     email,
     password_hash,
-    role,
+    platform_role,
     status,
     created_at,
     updated_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $6)
+VALUES ($1, $2, $3, NULL, $4, $5, $5)
 `
 
 const insertEmailVerificationTokenSQL = `
@@ -141,7 +141,6 @@ func (r *SignupRepository) Create(
 		params.IdentityID.String(),
 		params.Email,
 		params.PasswordHash,
-		string(params.Role),
 		string(params.Status),
 		params.CreatedAt,
 	)

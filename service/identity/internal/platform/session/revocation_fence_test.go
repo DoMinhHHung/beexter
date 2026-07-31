@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
 )
 
 func TestRevocationFenceRejectsDelayedSessionSave(t *testing.T) {

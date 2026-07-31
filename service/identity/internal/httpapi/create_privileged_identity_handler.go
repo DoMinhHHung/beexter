@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	appcreateidentity "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appcreateidentity "github.com/DoMinhHHung/beexster/service/identity/internal/application/createidentity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type CreatePrivilegedIdentityExecutor interface {
@@ -18,9 +18,9 @@ type CreatePrivilegedIdentityExecutor interface {
 }
 
 type createPrivilegedIdentityRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Email        string `json:"email"`
+	Password     string `json:"password"`
+	PlatformRole string `json:"platform_role"`
 }
 
 type createPrivilegedIdentityResponse struct {
@@ -28,10 +28,9 @@ type createPrivilegedIdentityResponse struct {
 }
 
 type createPrivilegedIdentityResponseData struct {
-	ID            string `json:"id"`
-	Email         string `json:"email"`
-	Role          string `json:"role"`
-	EmailVerified bool   `json:"email_verified"`
+	ID           string `json:"id"`
+	Email        string `json:"email"`
+	PlatformRole string `json:"platform_role"`
 }
 
 func createPrivilegedIdentityHandler(
@@ -53,7 +52,8 @@ func createPrivilegedIdentityHandler(
 		}
 
 		principal, ok := authenticatedPrincipalFromContext(r.Context())
-		if !ok || principal.UserID.IsZero() || !principal.Role.IsValid() {
+		if !ok || principal.UserID.IsZero() || !principal.PlatformRole.IsAssigned() ||
+			!principal.PlatformRole.IsValid() {
 			writeApplicationError(
 				w,
 				r,
@@ -94,12 +94,12 @@ func createPrivilegedIdentityHandler(
 		output, err := executor.Execute(
 			r.Context(),
 			appcreateidentity.Input{
-				ActorID:   principal.UserID,
-				ActorRole: principal.Role,
-				Email:     request.Email,
-				Password:  request.Password,
-				Role:      request.Role,
-				Locale:    parseAcceptLanguage(r.Header.Get("Accept-Language")),
+				ActorID:           principal.UserID,
+				ActorPlatformRole: principal.PlatformRole,
+				Email:             request.Email,
+				Password:          request.Password,
+				PlatformRole:      request.PlatformRole,
+				Locale:            parseAcceptLanguage(r.Header.Get("Accept-Language")),
 			},
 		)
 		if err != nil {
@@ -111,9 +111,9 @@ func createPrivilegedIdentityHandler(
 			"privileged identity created",
 			slog.String("request_id", requestID),
 			slog.String("actor_identity_id", principal.UserID.String()),
-			slog.String("actor_role", string(principal.Role)),
+			slog.String("actor_platform_role", string(principal.PlatformRole)),
 			slog.String("created_identity_id", output.ID.String()),
-			slog.String("created_role", string(output.Role)),
+			slog.String("created_platform_role", string(output.PlatformRole)),
 		)
 
 		writeJSON(
@@ -121,10 +121,9 @@ func createPrivilegedIdentityHandler(
 			http.StatusCreated,
 			createPrivilegedIdentityResponse{
 				Data: createPrivilegedIdentityResponseData{
-					ID:            output.ID.String(),
-					Email:         output.Email,
-					Role:          string(output.Role),
-					EmailVerified: false,
+					ID:           output.ID.String(),
+					Email:        output.Email,
+					PlatformRole: string(output.PlatformRole),
 				},
 			},
 			logger,

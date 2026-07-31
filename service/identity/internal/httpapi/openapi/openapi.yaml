@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
-  title: Beexter Identity Service API
+  title: Beexster Identity Service API
   version: 1.0.0
   description: |
     Identity lifecycle, email/password authentication, link-based verification,
-    password recovery, refresh-token rotation, session management, basic RBAC,
-    soft deletion, reactivation and login history.
+    password recovery, refresh-token rotation, session management, platform
+    administrative roles, soft deletion, reactivation and login history.
 servers:
   - url: http://localhost:8080
 security: []
@@ -37,6 +37,24 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/StatusResponse'}
         '503': {$ref: '#/components/responses/InternalError'}
+  /.well-known/jwks.json:
+    get:
+      tags: [Authentication]
+      operationId: getJWKS
+      summary: Get the access-token verification key.
+      description: Returns the single RSA public key used to verify Identity Service access tokens.
+      security: []
+      responses:
+        '200':
+          description: Public JSON Web Key Set.
+          headers:
+            Cache-Control:
+              description: Public key cache policy.
+              schema: {type: string, const: 'public, max-age=300'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/JWKS'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /v1/auth/signup:
     post:
       tags: [Authentication]
@@ -95,6 +113,7 @@ paths:
               schema: {$ref: '#/components/schemas/RefreshResponse'}
         '400': {$ref: '#/components/responses/InvalidInput'}
         '401': {$ref: '#/components/responses/InvalidToken'}
+        '403': {$ref: '#/components/responses/ForbiddenAuthentication'}
         '500': {$ref: '#/components/responses/InternalError'}
   /v1/auth/logout:
     post:
@@ -341,6 +360,7 @@ paths:
     post:
       tags: [Administration]
       operationId: createPrivilegedIdentity
+      description: Only a currently authorized ADMIN may create a VICE_ADMIN identity.
       security: [{bearerAuth: []}]
       parameters:
         - {$ref: '#/components/parameters/AcceptLanguage'}
@@ -351,10 +371,10 @@ paths:
             schema: {$ref: '#/components/schemas/PrivilegedIdentityRequest'}
       responses:
         '201':
-          description: AGENCY or VICE_ADMIN identity created according to hierarchy.
+          description: VICE_ADMIN identity created by a currently authorized ADMIN.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/IdentityCreatedResponse'}
+              schema: {$ref: '#/components/schemas/PrivilegedIdentityCreatedResponse'}
         '400': {$ref: '#/components/responses/InvalidInput'}
         '401': {$ref: '#/components/responses/InvalidToken'}
         '403': {$ref: '#/components/responses/Forbidden'}
@@ -396,7 +416,7 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/ErrorResponse'}
     Forbidden:
-      description: Role hierarchy does not authorize the operation.
+      description: The current platform administrative role does not authorize the operation.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -420,15 +440,12 @@ components:
       type: string
       format: uuid
       pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-    Role:
+    PlatformRole:
       type: string
-      enum: [CLIENT, JOB_SEEKER, AGENCY, ADMIN, VICE_ADMIN]
-    PublicRole:
+      enum: [ADMIN, VICE_ADMIN]
+    PrivilegedCreatablePlatformRole:
       type: string
-      enum: [CLIENT, JOB_SEEKER]
-    PrivilegedCreatableRole:
-      type: string
-      enum: [AGENCY, VICE_ADMIN]
+      enum: [VICE_ADMIN]
     StatusResponse:
       type: object
       required: [status]
@@ -462,31 +479,40 @@ components:
     SignupRequest:
       type: object
       additionalProperties: false
-      required: [email, password, role]
+      required: [email, password]
       properties:
         email: {type: string, format: email, maxLength: 254}
         password: {type: string, format: password, minLength: 8, maxLength: 128}
-        role: {$ref: '#/components/schemas/PublicRole'}
     PrivilegedIdentityRequest:
       type: object
       additionalProperties: false
-      required: [email, password, role]
+      required: [email, password, platform_role]
       properties:
         email: {type: string, format: email, maxLength: 254}
         password: {type: string, format: password, minLength: 8, maxLength: 128}
-        role: {$ref: '#/components/schemas/PrivilegedCreatableRole'}
+        platform_role: {$ref: '#/components/schemas/PrivilegedCreatablePlatformRole'}
     IdentityCreatedResponse:
       type: object
       required: [data]
       properties:
         data:
           type: object
-          required: [id, email, role, email_verified]
+          required: [id, email, email_verified]
           properties:
             id: {$ref: '#/components/schemas/UUIDv7'}
             email: {type: string, format: email}
-            role: {$ref: '#/components/schemas/Role'}
             email_verified: {type: boolean, const: false}
+    PrivilegedIdentityCreatedResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [id, email, platform_role]
+          properties:
+            id: {$ref: '#/components/schemas/UUIDv7'}
+            email: {type: string, format: email}
+            platform_role: {$ref: '#/components/schemas/PrivilegedCreatablePlatformRole'}
     LoginRequest:
       type: object
       additionalProperties: false
@@ -523,11 +549,11 @@ components:
         device_id: {$ref: '#/components/schemas/UUIDv7'}
     UserSummary:
       type: object
-      required: [id, email, role, email_verified]
+      required: [id, email, email_verified]
       properties:
         id: {$ref: '#/components/schemas/UUIDv7'}
         email: {type: string, format: email}
-        role: {$ref: '#/components/schemas/Role'}
+        platform_role: {$ref: '#/components/schemas/PlatformRole'}
         email_verified: {type: boolean}
     RefreshRequest:
       type: object
@@ -616,11 +642,11 @@ components:
       properties:
         data:
           type: object
-          required: [id, email, role, status, email_verified, created_at, updated_at]
+          required: [id, email, status, email_verified, created_at, updated_at]
           properties:
             id: {$ref: '#/components/schemas/UUIDv7'}
             email: {type: string, format: email}
-            role: {$ref: '#/components/schemas/Role'}
+            platform_role: {$ref: '#/components/schemas/PlatformRole'}
             status: {type: string, enum: [active, inactive]}
             email_verified: {type: boolean}
             created_at: {type: string, format: date-time}
@@ -684,3 +710,24 @@ components:
                   user_agent: {type: string}
                   attempted_at: {type: string, format: date-time}
             next_before: {type: string, format: date-time}
+    JWKS:
+      type: object
+      additionalProperties: false
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items: {$ref: '#/components/schemas/RSAJWK'}
+    RSAJWK:
+      type: object
+      additionalProperties: false
+      required: [kty, use, alg, kid, n, e]
+      properties:
+        kty: {type: string, const: RSA}
+        use: {type: string, const: sig}
+        alg: {type: string, const: RS256}
+        kid: {type: string, minLength: 1}
+        n: {type: string, pattern: '^[A-Za-z0-9_-]+$'}
+        e: {type: string, pattern: '^[A-Za-z0-9_-]+$'}

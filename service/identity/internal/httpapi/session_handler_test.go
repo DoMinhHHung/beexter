@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	sessionmanagementapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/sessionmanagement"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	sessionmanagementapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/sessionmanagement"
 )
 
 func TestLogoutCurrentHandler(t *testing.T) {

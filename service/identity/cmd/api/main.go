@@ -12,37 +12,37 @@ import (
 	"syscall"
 	"time"
 
-	authenticateapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/authenticate"
-	changepasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/changepassword"
-	cleanupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/cleanup"
-	createidentityapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
-	deleteaccountapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/deleteaccount"
-	forgotpasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/forgotpassword"
-	getmeapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/getme"
-	loginapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
-	loginhistoryapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/loginhistory"
-	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
-	refreshapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
-	requestreactivationapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/requestreactivation"
-	resendverificationapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/resendverification"
-	resetpasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/resetpassword"
-	sessionmanagementapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/sessionmanagement"
-	signupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
-	verifyemailapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/config"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/httpapi"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/accesstoken"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/emaildelivery"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/idgen"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/passwordhash"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/postgres"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/ratelimit"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/redisclient"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/refreshtoken"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/session"
+	authenticateapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/authenticate"
+	changepasswordapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/changepassword"
+	cleanupapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/cleanup"
+	createidentityapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/createidentity"
+	deleteaccountapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/deleteaccount"
+	forgotpasswordapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/forgotpassword"
+	getmeapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/getme"
+	loginapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/login"
+	loginhistoryapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/loginhistory"
+	outboxapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/outbox"
+	refreshapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/refresh"
+	requestreactivationapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/requestreactivation"
+	resendverificationapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/resendverification"
+	resetpasswordapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/resetpassword"
+	sessionmanagementapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/sessionmanagement"
+	signupapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/signup"
+	verifyemailapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/verifyemail"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/config"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/httpapi"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/accesstoken"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/emaildelivery"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/idgen"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/passwordhash"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/postgres"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/ratelimit"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/redisclient"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/refreshtoken"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/session"
 )
 
-const dummyLoginPassword = "BeexterDummyAuthentication1!"
+const dummyLoginPassword = "BeexsterDummyAuthentication1!"
 
 func main() {
 	logger := slog.New(
@@ -67,6 +67,11 @@ func run(logger *slog.Logger) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+
+	accessTokenService, err := newAccessTokenService(cfg.Token)
+	if err != nil {
+		return err
 	}
 
 	forgotPasswordConfig, err := config.LoadForgotPassword()
@@ -288,11 +293,6 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create refresh repository: %w", err)
 	}
 
-	authenticationRepository, err := postgres.NewAuthenticationRepository(database)
-	if err != nil {
-		return fmt.Errorf("create authentication repository: %w", err)
-	}
-
 	meRepository, err := postgres.NewMeRepository(database)
 	if err != nil {
 		return fmt.Errorf("create me repository: %w", err)
@@ -353,11 +353,6 @@ func run(logger *slog.Logger) error {
 	dummyPasswordHash, err := passwordHasher.Hash(dummyLoginPassword)
 	if err != nil {
 		return fmt.Errorf("create dummy login password hash: %w", err)
-	}
-
-	accessTokenService, err := accesstoken.New(cfg.Token.JWTSecret)
-	if err != nil {
-		return fmt.Errorf("create access-token service: %w", err)
 	}
 
 	refreshTokenCodec, err := refreshtoken.New(
@@ -429,7 +424,6 @@ func run(logger *slog.Logger) error {
 	}
 
 	authenticateUseCase, err := authenticateapp.New(
-		authenticationRepository,
 		accessTokenService,
 		time.Now,
 	)
@@ -643,6 +637,8 @@ func run(logger *slog.Logger) error {
 			LoginHistory:             loginHistoryUseCase,
 			Authenticator:            authenticateUseCase,
 			Sessions:                 sessionManagementService,
+			JWKS:                     accessTokenService,
+			TrustedProxyPrefixes:     cfg.HTTP.TrustedProxyPrefixes,
 		},
 	)
 
@@ -740,4 +736,29 @@ func run(logger *slog.Logger) error {
 
 	logger.Info("http server stopped gracefully")
 	return runErr
+}
+
+func newAccessTokenService(
+	tokenConfig config.TokenConfig,
+) (*accesstoken.RS256, error) {
+	privateKey, err := accesstoken.LoadPrivateKey(tokenConfig.PrivateKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("load access-token private key: %w", err)
+	}
+
+	service, err := accesstoken.New(
+		privateKey,
+		accesstoken.Config{
+			Issuer:           tokenConfig.Issuer,
+			Audience:         tokenConfig.Audience,
+			KeyID:            tokenConfig.KeyID,
+			AccessTokenTTL:   tokenConfig.AccessTokenTTL,
+			AllowedClockSkew: tokenConfig.AllowedClockSkew,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create access-token service: %w", err)
+	}
+
+	return service, nil
 }

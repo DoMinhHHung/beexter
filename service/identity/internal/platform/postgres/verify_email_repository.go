@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	appverifyemail "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appverifyemail "github.com/DoMinhHHung/beexster/service/identity/internal/application/verifyemail"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5"
 )
 

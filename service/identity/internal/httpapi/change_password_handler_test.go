@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	appchangepassword "github.com/DoMinhHHung/beexter/service/identity/internal/application/changepassword"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	appchangepassword "github.com/DoMinhHHung/beexster/service/identity/internal/application/changepassword"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const changePasswordHandlerUserID = identity.ID(
@@ -50,11 +50,11 @@ func TestChangePasswordHandler(t *testing.T) {
 				r.Context(),
 				authenticatedPrincipalContextKey{},
 				appauth.Principal{
-					UserID:    changePasswordHandlerUserID,
-					DeviceID:  "0198f124-659f-7cbd-a441-dc7eea175074",
-					Role:      identity.RoleClient,
-					IssuedAt:  time.Now().Add(-time.Minute),
-					ExpiresAt: time.Now().Add(time.Hour),
+					UserID:       changePasswordHandlerUserID,
+					DeviceID:     "0198f124-659f-7cbd-a441-dc7eea175074",
+					PlatformRole: identity.PlatformRoleNone,
+					IssuedAt:     time.Now().Add(-time.Minute),
+					ExpiresAt:    time.Now().Add(time.Hour),
 				},
 			)
 			changePasswordHandler(testLogger(), executor).ServeHTTP(

@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	appverifyemail "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appverifyemail "github.com/DoMinhHHung/beexster/service/identity/internal/application/verifyemail"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type VerifyEmailExecutor interface {

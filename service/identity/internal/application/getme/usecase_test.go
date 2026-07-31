@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const getMeTestUserID = identity.ID("0198f124-659f-7cbd-a441-dc7eea175073")
@@ -28,7 +28,7 @@ func TestUseCaseReturnsCurrentIdentity(t *testing.T) {
 			return identity.Identity{
 				ID:            getMeTestUserID,
 				Email:         "user@example.com",
-				Role:          identity.RoleJobSeeker,
+				PlatformRole:  identity.PlatformRoleAdmin,
 				Status:        identity.StatusActive,
 				EmailVerified: true,
 				CreatedAt:     createdAt,
@@ -52,7 +52,7 @@ func TestUseCaseReturnsCurrentIdentity(t *testing.T) {
 
 	if output.ID != getMeTestUserID ||
 		output.Email != "user@example.com" ||
-		output.Role != identity.RoleJobSeeker ||
+		output.PlatformRole != identity.PlatformRoleAdmin ||
 		output.Status != identity.StatusActive ||
 		!output.EmailVerified ||
 		!output.CreatedAt.Equal(createdAt) ||
@@ -98,7 +98,7 @@ func TestUseCaseRejectsInactiveIdentity(t *testing.T) {
 			return identity.Identity{
 				ID:            getMeTestUserID,
 				Email:         "user@example.com",
-				Role:          identity.RoleClient,
+				PlatformRole:  identity.PlatformRoleNone,
 				Status:        identity.StatusInactive,
 				EmailVerified: true,
 				CreatedAt:     time.Now().UTC().Add(-time.Hour),

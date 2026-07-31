@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	appreactivation "github.com/DoMinhHHung/beexter/service/identity/internal/application/requestreactivation"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appreactivation "github.com/DoMinhHHung/beexster/service/identity/internal/application/requestreactivation"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5"
 )
 

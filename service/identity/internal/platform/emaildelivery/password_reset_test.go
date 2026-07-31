@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	appoutbox "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
+	appoutbox "github.com/DoMinhHHung/beexster/service/identity/internal/application/outbox"
 )
 
 const (

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/config"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/config"
 	"github.com/redis/go-redis/v9"
 )
 

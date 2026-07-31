@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	appresendverification "github.com/DoMinhHHung/beexter/service/identity/internal/application/resendverification"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appresendverification "github.com/DoMinhHHung/beexster/service/identity/internal/application/resendverification"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5"
 )
 

@@ -6,8 +6,8 @@ import (
 	"net/netip"
 	"time"
 
-	appchangepassword "github.com/DoMinhHHung/beexter/service/identity/internal/application/changepassword"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appchangepassword "github.com/DoMinhHHung/beexster/service/identity/internal/application/changepassword"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 type ChangePasswordPolicy struct {

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	appforgotpassword "github.com/DoMinhHHung/beexter/service/identity/internal/application/forgotpassword"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appforgotpassword "github.com/DoMinhHHung/beexster/service/identity/internal/application/forgotpassword"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5"
 )
 

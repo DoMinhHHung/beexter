@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"net/netip"
 
-	appreactivation "github.com/DoMinhHHung/beexter/service/identity/internal/application/requestreactivation"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appreactivation "github.com/DoMinhHHung/beexster/service/identity/internal/application/requestreactivation"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type ReactivationExecutor interface {

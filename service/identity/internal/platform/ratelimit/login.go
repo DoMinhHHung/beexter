@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"time"
 
-	applogin "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
+	applogin "github.com/DoMinhHHung/beexster/service/identity/internal/application/login"
 )
 
 type LoginPolicy struct {

@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	domainlocale "github.com/DoMinhHHung/beexter/service/identity/internal/domain/locale"
+	domainlocale "github.com/DoMinhHHung/beexster/service/identity/internal/domain/locale"
 )
 
 const defaultCatalogLocale = domainlocale.Default

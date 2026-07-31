@@ -7,27 +7,18 @@ import (
 	"strings"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 const maxAccessTokenLength = 4096
 
 var (
 	ErrDependencyMissing = errors.New("authentication dependency is missing")
-	ErrIdentityNotFound  = errors.New("authenticated identity was not found")
 )
 
 type Input struct {
 	AccessToken string
-}
-
-type Repository interface {
-	FindByID(
-		ctx context.Context,
-		identityID identity.ID,
-	) (identity.Identity, error)
 }
 
 type AccessTokenVerifier interface {
@@ -38,22 +29,19 @@ type AccessTokenVerifier interface {
 }
 
 type UseCase struct {
-	repository   Repository
 	accessTokens AccessTokenVerifier
 	now          func() time.Time
 }
 
 func New(
-	repository Repository,
 	accessTokens AccessTokenVerifier,
 	now func() time.Time,
 ) (*UseCase, error) {
-	if repository == nil || accessTokens == nil || now == nil {
+	if accessTokens == nil || now == nil {
 		return nil, ErrDependencyMissing
 	}
 
 	return &UseCase{
-		repository:   repository,
 		accessTokens: accessTokens,
 		now:          now,
 	}, nil
@@ -64,7 +52,6 @@ func (u *UseCase) Execute(
 	input Input,
 ) (appauth.Principal, error) {
 	if u == nil ||
-		u.repository == nil ||
 		u.accessTokens == nil ||
 		u.now == nil {
 		return appauth.Principal{}, domain.WrapError(
@@ -87,7 +74,7 @@ func (u *UseCase) Execute(
 		)
 	}
 
-	now := u.now().UTC().Truncate(time.Second)
+	now := u.now().UTC()
 	if now.IsZero() {
 		return appauth.Principal{}, domain.WrapError(
 			domain.ErrInternal,
@@ -116,48 +103,10 @@ func (u *UseCase) Execute(
 		}
 	}
 
-	account, err := u.repository.FindByID(ctx, claims.Subject)
-	if errors.Is(err, ErrIdentityNotFound) {
-		return appauth.Principal{}, domain.NewError(
-			domain.ErrTokenInvalid,
-		)
-	}
-
-	if err != nil {
-		return appauth.Principal{}, domain.WrapError(
-			domain.ErrInternal,
-			fmt.Errorf("find authenticated identity: %w", err),
-		)
-	}
-
-	if err := account.CanAuthenticate(); err != nil {
-		var domainError *domain.Error
-		if errors.As(err, &domainError) {
-			return appauth.Principal{}, domain.NewError(
-				domainError.Code,
-			)
-		}
-
-		return appauth.Principal{}, domain.WrapError(
-			domain.ErrInternal,
-			fmt.Errorf("check authenticated identity state: %w", err),
-		)
-	}
-
-	// Roles and verification state may change after a token is issued. A
-	// mismatch invalidates the token instead of authorizing stale claims.
-	if claims.Role != account.Role ||
-		claims.EmailVerified != account.EmailVerified {
-		return appauth.Principal{}, domain.NewError(
-			domain.ErrTokenInvalid,
-		)
-	}
-
 	return appauth.Principal{
-		UserID:         account.ID,
+		UserID:         claims.Subject,
 		DeviceID:       claims.DeviceID,
-		Role:           account.Role,
-		EmailVerified:  account.EmailVerified,
+		PlatformRole:   claims.PlatformRole,
 		AccessTokenJTI: claims.JTI,
 		IssuedAt:       claims.IssuedAt,
 		ExpiresAt:      claims.ExpiresAt,

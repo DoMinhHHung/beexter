@@ -3,7 +3,7 @@ package identity
 import (
 	"time"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type Status string
@@ -17,7 +17,7 @@ type Identity struct {
 	ID              ID
 	Email           string
 	PasswordHash    string
-	Role            Role
+	PlatformRole    PlatformRole
 	Status          Status
 	EmailVerified   bool
 	SoftDeleteCount uint8

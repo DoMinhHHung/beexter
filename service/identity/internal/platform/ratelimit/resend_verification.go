@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"time"
 
-	appresendverification "github.com/DoMinhHHung/beexter/service/identity/internal/application/resendverification"
+	appresendverification "github.com/DoMinhHHung/beexster/service/identity/internal/application/resendverification"
 )
 
 type ResendVerificationPolicy struct {

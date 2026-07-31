@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	appsignup "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appsignup "github.com/DoMinhHHung/beexster/service/identity/internal/application/signup"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 func TestSignupHandlerCreatesIdentity(t *testing.T) {
@@ -32,13 +32,6 @@ func TestSignupHandlerCreatesIdentity(t *testing.T) {
 				t.Fatal("unexpected password")
 			}
 
-			if input.Role != "JOB_SEEKER" {
-				t.Fatalf(
-					"unexpected role: %q",
-					input.Role,
-				)
-			}
-
 			if input.IPAddress.String() != "192.0.2.10" {
 				t.Fatalf(
 					"unexpected IP address: %s",
@@ -55,7 +48,6 @@ func TestSignupHandlerCreatesIdentity(t *testing.T) {
 					"0198f124-659f-7cbd-a441-dc7eea175073",
 				),
 				Email: "user@example.com",
-				Role:  identity.RoleJobSeeker,
 			}, nil
 		},
 	}
@@ -69,7 +61,7 @@ func TestSignupHandlerCreatesIdentity(t *testing.T) {
 		http.MethodPost,
 		"/v1/auth/signup",
 		strings.NewReader(
-			`{"email":"User@Example.COM","password":"Secure1!","role":"JOB_SEEKER"}`,
+			`{"email":"User@Example.COM","password":"Secure1!"}`,
 		),
 	)
 
@@ -94,7 +86,8 @@ func TestSignupHandlerCreatesIdentity(t *testing.T) {
 
 	var payload signupResponse
 
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+	responseBody := response.Body.Bytes()
+	if err := json.Unmarshal(responseBody, &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 
@@ -113,15 +106,61 @@ func TestSignupHandlerCreatesIdentity(t *testing.T) {
 		)
 	}
 
-	if payload.Data.Role != "JOB_SEEKER" {
-		t.Fatalf(
-			"unexpected role: %q",
-			payload.Data.Role,
-		)
-	}
-
 	if payload.Data.EmailVerified {
 		t.Fatal("new signup must not be email verified")
+	}
+
+	var rawPayload map[string]map[string]any
+	if err := json.Unmarshal(responseBody, &rawPayload); err != nil {
+		t.Fatalf("decode raw response: %v", err)
+	}
+	if _, exists := rawPayload["data"]["role"]; exists {
+		t.Fatal("signup response must not contain legacy role")
+	}
+	if _, exists := rawPayload["data"]["platform_role"]; exists {
+		t.Fatal("signup response must not contain platform_role")
+	}
+}
+
+func TestSignupHandlerRejectsLegacyRole(t *testing.T) {
+	t.Parallel()
+
+	handler := applyMiddleware(
+		testLogger(),
+		signupHandler(
+			testLogger(),
+			&stubSignupExecutor{
+				execute: func(
+					context.Context,
+					appsignup.Input,
+				) (appsignup.Output, error) {
+					t.Fatal("executor must not be called")
+					return appsignup.Output{}, nil
+				},
+			},
+		),
+	)
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/auth/signup",
+		strings.NewReader(
+			`{"email":"user@example.com","password":"Secure1!","role":"CLIENT"}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "192.0.2.10:54321"
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf(
+			"expected status %d, got %d: %s",
+			http.StatusBadRequest,
+			response.Code,
+			response.Body.String(),
+		)
 	}
 }
 
@@ -194,7 +233,7 @@ func TestSignupHandlerMapsDuplicateEmail(t *testing.T) {
 		http.MethodPost,
 		"/v1/auth/signup",
 		strings.NewReader(
-			`{"email":"user@example.com","password":"Secure1!","role":"CLIENT"}`,
+			`{"email":"user@example.com","password":"Secure1!"}`,
 		),
 	)
 

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const (
@@ -46,12 +46,12 @@ func TestUseCaseAdminCreatesViceAdmin(t *testing.T) {
 	output, err := useCase.Execute(
 		context.Background(),
 		Input{
-			ActorID:   testActorID,
-			ActorRole: identity.RoleAdmin,
-			Email:     " ViceAdmin@Example.COM ",
-			Password:  "Secure1!",
-			Role:      "vice_admin",
-			Locale:    "ja-JP",
+			ActorID:           testActorID,
+			ActorPlatformRole: identity.PlatformRoleAdmin,
+			Email:             " ViceAdmin@Example.COM ",
+			Password:          "Secure1!",
+			PlatformRole:      "VICE_ADMIN",
+			Locale:            "ja-JP",
 		},
 	)
 	if err != nil {
@@ -60,14 +60,15 @@ func TestUseCaseAdminCreatesViceAdmin(t *testing.T) {
 
 	if output.ID != testNewID ||
 		output.Email != "viceadmin@example.com" ||
-		output.Role != identity.RoleViceAdmin {
+		output.PlatformRole != identity.PlatformRoleViceAdmin {
 		t.Fatalf("unexpected output: %+v", output)
 	}
 
-	if persisted.IdentityID != testNewID ||
+	if persisted.ActorID != testActorID ||
+		persisted.IdentityID != testNewID ||
 		persisted.VerificationTokenID != testTokenID ||
 		persisted.OutboxEventID != testOutboxID ||
-		persisted.Role != identity.RoleViceAdmin ||
+		persisted.PlatformRole != identity.PlatformRoleViceAdmin ||
 		persisted.Status != identity.StatusActive ||
 		persisted.Locale != "ja" ||
 		persisted.PasswordHash != "$argon2id$test" ||
@@ -87,22 +88,23 @@ func TestUseCaseAdminCreatesViceAdmin(t *testing.T) {
 	}
 }
 
-func TestUseCaseRoleHierarchy(t *testing.T) {
+func TestUseCasePlatformRoleHierarchy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		actorRole identity.Role
-		target    string
-		allowed   bool
+		name        string
+		actorRole   identity.PlatformRole
+		target      string
+		expectedErr domain.ErrorCode
 	}{
-		{name: "admin creates agency", actorRole: identity.RoleAdmin, target: "AGENCY", allowed: true},
-		{name: "admin creates vice admin", actorRole: identity.RoleAdmin, target: "VICE_ADMIN", allowed: true},
-		{name: "vice admin creates agency", actorRole: identity.RoleViceAdmin, target: "AGENCY", allowed: true},
-		{name: "vice admin cannot create vice admin", actorRole: identity.RoleViceAdmin, target: "VICE_ADMIN"},
-		{name: "admin cannot create admin", actorRole: identity.RoleAdmin, target: "ADMIN"},
-		{name: "admin cannot create client", actorRole: identity.RoleAdmin, target: "CLIENT"},
-		{name: "client cannot create agency", actorRole: identity.RoleClient, target: "AGENCY"},
+		{name: "admin creates vice admin", actorRole: identity.PlatformRoleAdmin, target: "VICE_ADMIN"},
+		{name: "admin cannot create admin", actorRole: identity.PlatformRoleAdmin, target: "ADMIN", expectedErr: domain.ErrForbidden},
+		{name: "vice admin cannot create vice admin", actorRole: identity.PlatformRoleViceAdmin, target: "VICE_ADMIN", expectedErr: domain.ErrForbidden},
+		{name: "ordinary cannot create vice admin", actorRole: identity.PlatformRoleNone, target: "VICE_ADMIN", expectedErr: domain.ErrForbidden},
+		{name: "platform role is required", actorRole: identity.PlatformRoleAdmin, target: "", expectedErr: domain.ErrInvalidInput},
+		{name: "agency is not a platform role", actorRole: identity.PlatformRoleAdmin, target: "AGENCY", expectedErr: domain.ErrInvalidInput},
+		{name: "client is not a platform role", actorRole: identity.PlatformRoleAdmin, target: "CLIENT", expectedErr: domain.ErrInvalidInput},
+		{name: "job seeker is not a platform role", actorRole: identity.PlatformRoleAdmin, target: "JOB_SEEKER", expectedErr: domain.ErrInvalidInput},
 	}
 
 	for _, test := range tests {
@@ -125,16 +127,16 @@ func TestUseCaseRoleHierarchy(t *testing.T) {
 			_, err := useCase.Execute(
 				context.Background(),
 				Input{
-					ActorID:   testActorID,
-					ActorRole: test.actorRole,
-					Email:     "created@example.com",
-					Password:  "Secure1!",
-					Role:      test.target,
-					Locale:    "en",
+					ActorID:           testActorID,
+					ActorPlatformRole: test.actorRole,
+					Email:             "created@example.com",
+					Password:          "Secure1!",
+					PlatformRole:      test.target,
+					Locale:            "en",
 				},
 			)
 
-			if test.allowed {
+			if test.expectedErr == "" {
 				if err != nil {
 					t.Fatalf("expected success, got %v", err)
 				}
@@ -144,35 +146,29 @@ func TestUseCaseRoleHierarchy(t *testing.T) {
 				return
 			}
 
-			assertDomainCode(t, err, domain.ErrForbidden)
+			assertDomainCode(t, err, test.expectedErr)
 			if repositoryCalled {
-				t.Fatal("repository must not run for forbidden hierarchy")
+				t.Fatal("repository must not run for rejected hierarchy")
 			}
 		})
 	}
 }
 
-func TestUseCaseRejectsUnknownRoleAsInvalidInput(t *testing.T) {
+func TestUseCaseMapsAuthoritativeActorRejection(t *testing.T) {
 	t.Parallel()
 
 	useCase := newUseCase(
 		t,
-		&fakeRepository{create: func(context.Context, CreateParams) error { return nil }},
+		&fakeRepository{
+			create: func(context.Context, CreateParams) error {
+				return ErrActorForbidden
+			},
+		},
 		&fakeHasher{hash: "$argon2id$test"},
 	)
 
-	_, err := useCase.Execute(
-		context.Background(),
-		Input{
-			ActorID:   testActorID,
-			ActorRole: identity.RoleAdmin,
-			Email:     "created@example.com",
-			Password:  "Secure1!",
-			Role:      "SUPER_ADMIN",
-		},
-	)
-
-	assertDomainCode(t, err, domain.ErrInvalidInput)
+	_, err := useCase.Execute(context.Background(), validInput())
+	assertDomainCode(t, err, domain.ErrForbidden)
 }
 
 func TestUseCaseMapsEmailConflict(t *testing.T) {
@@ -188,18 +184,18 @@ func TestUseCaseMapsEmailConflict(t *testing.T) {
 		&fakeHasher{hash: "$argon2id$test"},
 	)
 
-	_, err := useCase.Execute(
-		context.Background(),
-		Input{
-			ActorID:   testActorID,
-			ActorRole: identity.RoleAdmin,
-			Email:     "created@example.com",
-			Password:  "Secure1!",
-			Role:      "AGENCY",
-		},
-	)
-
+	_, err := useCase.Execute(context.Background(), validInput())
 	assertDomainCode(t, err, domain.ErrEmailAlreadyExists)
+}
+
+func validInput() Input {
+	return Input{
+		ActorID:           testActorID,
+		ActorPlatformRole: identity.PlatformRoleAdmin,
+		Email:             "created@example.com",
+		Password:          "Secure1!",
+		PlatformRole:      "VICE_ADMIN",
+	}
 }
 
 func newUseCase(

@@ -14,9 +14,28 @@ func TestEmbeddedOpenAPIDocumentsFinalSurface(t *testing.T) {
 		[]byte("/v1/me/login-history"),
 		[]byte("delete:"),
 		[]byte("/v1/admin/identities"),
+		[]byte("/.well-known/jwks.json"),
+		[]byte("PlatformRole:"),
+		[]byte("platform_role:"),
+		[]byte("enum: [VICE_ADMIN]"),
+		[]byte("const: RS256"),
 	} {
 		if !bytes.Contains(openAPISpec, route) {
 			t.Fatalf("OpenAPI spec missing %q", route)
+		}
+	}
+
+	for _, legacy := range [][]byte{
+		[]byte("\n    Role:"),
+		[]byte("PublicRole:"),
+		[]byte("PrivilegedCreatableRole:"),
+		[]byte("\n        role:"),
+		[]byte("CLIENT"),
+		[]byte("JOB_SEEKER"),
+		[]byte("AGENCY"),
+	} {
+		if bytes.Contains(openAPISpec, legacy) {
+			t.Fatalf("OpenAPI spec contains legacy contract %q", legacy)
 		}
 	}
 

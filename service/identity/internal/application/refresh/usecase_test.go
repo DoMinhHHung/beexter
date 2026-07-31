@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const (
@@ -175,7 +175,7 @@ func validAccount() identity.Identity {
 	return identity.Identity{
 		ID:            testUserID,
 		Email:         "user@example.com",
-		Role:          identity.RoleClient,
+		PlatformRole:  identity.PlatformRoleNone,
 		Status:        identity.StatusActive,
 		EmailVerified: true,
 	}

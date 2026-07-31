@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"time"
 
-	appresetpassword "github.com/DoMinhHHung/beexter/service/identity/internal/application/resetpassword"
+	appresetpassword "github.com/DoMinhHHung/beexster/service/identity/internal/application/resetpassword"
 )
 
 type ResetPasswordPolicy struct {

@@ -9,8 +9,8 @@ import (
 	"net/netip"
 	"time"
 
-	apprefresh "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	apprefresh "github.com/DoMinhHHung/beexster/service/identity/internal/application/refresh"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type RefreshExecutor interface {
@@ -101,8 +101,8 @@ func refreshHandler(
 					AccessToken:           output.AccessToken,
 					RefreshToken:          output.RefreshToken,
 					TokenType:             output.TokenType,
-					AccessTokenExpiresAt:  output.AccessTokenExpiresAt.Format(time.RFC3339),
-					RefreshTokenExpiresAt: output.RefreshTokenExpiresAt.Format(time.RFC3339),
+					AccessTokenExpiresAt:  output.AccessTokenExpiresAt.Format(time.RFC3339Nano),
+					RefreshTokenExpiresAt: output.RefreshTokenExpiresAt.Format(time.RFC3339Nano),
 					DeviceID:              output.DeviceID,
 				},
 			},

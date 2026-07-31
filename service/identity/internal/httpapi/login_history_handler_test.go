@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	apploginhistory "github.com/DoMinhHHung/beexter/service/identity/internal/application/loginhistory"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	apploginhistory "github.com/DoMinhHHung/beexster/service/identity/internal/application/loginhistory"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 func TestLoginHistoryHandlerParsesCursor(t *testing.T) {

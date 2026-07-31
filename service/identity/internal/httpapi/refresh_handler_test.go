@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	apprefresh "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	apprefresh "github.com/DoMinhHHung/beexster/service/identity/internal/application/refresh"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 func TestRefreshHandlerRotatesTokens(t *testing.T) {
@@ -31,8 +31,8 @@ func TestRefreshHandlerRotatesTokens(t *testing.T) {
 				AccessToken:           "new-access",
 				RefreshToken:          "new-refresh",
 				TokenType:             "Bearer",
-				AccessTokenExpiresAt:  time.Date(2026, 7, 30, 13, 0, 0, 0, time.UTC),
-				RefreshTokenExpiresAt: time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC),
+				AccessTokenExpiresAt:  time.Date(2026, 7, 30, 13, 0, 0, 500_000_000, time.UTC),
+				RefreshTokenExpiresAt: time.Date(2026, 8, 6, 12, 0, 0, 750_000_000, time.UTC),
 				DeviceID:              "0198f124-659f-7cbd-a441-dc7eea175074",
 			}, nil
 		},
@@ -65,7 +65,9 @@ func TestRefreshHandlerRotatesTokens(t *testing.T) {
 	}
 
 	if payload.Data.RefreshToken != "new-refresh" ||
-		payload.Data.AccessToken != "new-access" {
+		payload.Data.AccessToken != "new-access" ||
+		payload.Data.AccessTokenExpiresAt != "2026-07-30T13:00:00.5Z" ||
+		payload.Data.RefreshTokenExpiresAt != "2026-08-06T12:00:00.75Z" {
 		t.Fatalf("unexpected response: %+v", payload)
 	}
 }
@@ -103,6 +105,54 @@ func TestRefreshHandlerMapsReuse(t *testing.T) {
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, response.Code)
+	}
+}
+
+func TestRefreshHandlerMapsAuthoritativeAccountRejection(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []domain.ErrorCode{
+		domain.ErrEmailNotVerified,
+		domain.ErrAccountInactive,
+	} {
+		code := code
+		t.Run(string(code), func(t *testing.T) {
+			t.Parallel()
+
+			handler := applyMiddleware(
+				testLogger(),
+				refreshHandler(
+					testLogger(),
+					&stubRefreshExecutor{
+						execute: func(
+							context.Context,
+							apprefresh.Input,
+						) (apprefresh.Output, error) {
+							return apprefresh.Output{}, domain.NewError(code)
+						},
+					},
+				),
+			)
+
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/auth/refresh",
+				strings.NewReader(`{"refresh_token":"inactive-account-token"}`),
+			)
+			request.Header.Set("Content-Type", "application/json")
+			request.RemoteAddr = "192.0.2.10:54321"
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+
+			if response.Code != http.StatusForbidden {
+				t.Fatalf(
+					"expected status %d, got %d: %s",
+					http.StatusForbidden,
+					response.Code,
+					response.Body.String(),
+				)
+			}
+		})
 	}
 }
 

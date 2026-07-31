@@ -10,9 +10,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const (
@@ -38,7 +38,7 @@ type Input struct {
 type User struct {
 	ID            identity.ID
 	Email         string
-	Role          identity.Role
+	PlatformRole  identity.PlatformRole
 	EmailVerified bool
 }
 
@@ -411,12 +411,11 @@ func (u *UseCase) Execute(
 
 	accessToken, accessExpiresAt, err := u.accessTokens.Issue(
 		AccessTokenClaims{
-			Subject:       account.ID,
-			DeviceID:      deviceID,
-			Role:          account.Role,
-			EmailVerified: account.EmailVerified,
-			IssuedAt:      now,
-			JTI:           accessTokenJTI,
+			Subject:      account.ID,
+			DeviceID:     deviceID,
+			PlatformRole: account.PlatformRole,
+			IssuedAt:     now,
+			JTI:          accessTokenJTI,
 		},
 	)
 	if err != nil {
@@ -503,7 +502,7 @@ func (u *UseCase) Execute(
 		User: User{
 			ID:            account.ID,
 			Email:         account.Email,
-			Role:          account.Role,
+			PlatformRole:  account.PlatformRole,
 			EmailVerified: account.EmailVerified,
 		},
 	}, nil

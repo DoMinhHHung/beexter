@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	getmeapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/getme"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	getmeapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/getme"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 func TestMeHandlerReturnsBasicIdentity(t *testing.T) {
@@ -30,8 +30,8 @@ func TestMeHandlerReturnsBasicIdentity(t *testing.T) {
 			}
 			return getmeapp.Output{
 				ID:            userID,
-				Email:         "user@example.com",
-				Role:          identity.RoleJobSeeker,
+				Email:         "admin@example.com",
+				PlatformRole:  identity.PlatformRoleViceAdmin,
 				Status:        identity.StatusActive,
 				EmailVerified: true,
 				CreatedAt:     createdAt,
@@ -59,13 +59,58 @@ func TestMeHandlerReturnsBasicIdentity(t *testing.T) {
 	}
 
 	if payload.Data.ID != userID.String() ||
-		payload.Data.Email != "user@example.com" ||
-		payload.Data.Role != string(identity.RoleJobSeeker) ||
+		payload.Data.Email != "admin@example.com" ||
+		payload.Data.PlatformRole != string(identity.PlatformRoleViceAdmin) ||
 		payload.Data.Status != string(identity.StatusActive) ||
 		!payload.Data.EmailVerified ||
 		!payload.Data.CreatedAt.Equal(createdAt) ||
 		!payload.Data.UpdatedAt.Equal(updatedAt) {
 		t.Fatalf("unexpected response: %+v", payload)
+	}
+}
+
+func TestMeHandlerOmitsUnassignedPlatformRole(t *testing.T) {
+	t.Parallel()
+
+	userID := identity.ID("0198f124-659f-7cbd-a441-dc7eea175073")
+	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
+	handler := withMePrincipal(
+		appauth.Principal{UserID: userID},
+		meHandler(testLogger(), &stubGetMeExecutor{execute: func(
+			context.Context,
+			getmeapp.Input,
+		) (getmeapp.Output, error) {
+			return getmeapp.Output{
+				ID:            userID,
+				Email:         "user@example.com",
+				PlatformRole:  identity.PlatformRoleNone,
+				Status:        identity.StatusActive,
+				EmailVerified: true,
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			}, nil
+		}}),
+	)
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodGet, "/v1/me", nil),
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	var payload map[string]map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if _, exists := payload["data"]["platform_role"]; exists {
+		t.Fatal("ordinary me response must omit platform_role")
+	}
+	if _, exists := payload["data"]["role"]; exists {
+		t.Fatal("me response must not contain legacy role")
 	}
 }
 

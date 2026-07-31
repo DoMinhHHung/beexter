@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const (
@@ -140,7 +140,6 @@ func TestUseCaseExecuteCreatesSignupAtomically(t *testing.T) {
 		Input{
 			Email:     " User@Example.COM ",
 			Password:  "Secure1!",
-			Role:      "job_seeker",
 			IPAddress: netip.MustParseAddr("192.0.2.10"),
 			RequestID: "request-1",
 		},
@@ -168,8 +167,7 @@ func TestUseCaseExecuteCreatesSignupAtomically(t *testing.T) {
 	}
 
 	if output.ID != testIdentityID ||
-		output.Email != "user@example.com" ||
-		output.Role != identity.RoleJobSeeker {
+		output.Email != "user@example.com" {
 		t.Fatalf("unexpected output: %+v", output)
 	}
 
@@ -405,7 +403,6 @@ func validInput() Input {
 	return Input{
 		Email:     "user@example.com",
 		Password:  "Secure1!",
-		Role:      "CLIENT",
 		IPAddress: netip.MustParseAddr("192.0.2.10"),
 		RequestID: "request-1",
 	}

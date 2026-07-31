@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	appoutbox "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
+	appoutbox "github.com/DoMinhHHung/beexster/service/identity/internal/application/outbox"
 )
 
 var ErrPasswordResetMailerNotInitialized = errors.New(

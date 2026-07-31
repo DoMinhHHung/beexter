@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 const (

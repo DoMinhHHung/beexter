@@ -7,9 +7,9 @@ import (
 	"sort"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 var ErrDependencyMissing = errors.New(
@@ -192,8 +192,7 @@ func (s *Service) validate(
 	}
 
 	if principal.UserID.IsZero() ||
-		!principal.Role.IsValid() ||
-		!principal.EmailVerified {
+		!principal.PlatformRole.IsValidOrEmpty() {
 		return domain.NewError(domain.ErrForbidden)
 	}
 

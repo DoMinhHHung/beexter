@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const RefreshTokenTTL = 7 * 24 * time.Hour
@@ -19,29 +19,26 @@ var (
 )
 
 type AccessTokenClaims struct {
-	Subject       identity.ID
-	DeviceID      string
-	Role          identity.Role
-	EmailVerified bool
-	IssuedAt      time.Time
-	JTI           string
+	Subject      identity.ID
+	DeviceID     string
+	PlatformRole identity.PlatformRole
+	IssuedAt     time.Time
+	JTI          string
 }
 
 type VerifiedAccessToken struct {
-	Subject       identity.ID
-	DeviceID      string
-	Role          identity.Role
-	EmailVerified bool
-	IssuedAt      time.Time
-	ExpiresAt     time.Time
-	JTI           string
+	Subject      identity.ID
+	DeviceID     string
+	PlatformRole identity.PlatformRole
+	IssuedAt     time.Time
+	ExpiresAt    time.Time
+	JTI          string
 }
 
 type Principal struct {
 	UserID         identity.ID
 	DeviceID       string
-	Role           identity.Role
-	EmailVerified  bool
+	PlatformRole   identity.PlatformRole
 	AccessTokenJTI string
 	IssuedAt       time.Time
 	ExpiresAt      time.Time

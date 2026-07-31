@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	authenticateapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/authenticate"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	authenticateapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/authenticate"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type authenticatedPrincipalContextKey struct{}

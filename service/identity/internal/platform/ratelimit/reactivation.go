@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"time"
 
-	appreactivation "github.com/DoMinhHHung/beexter/service/identity/internal/application/requestreactivation"
+	appreactivation "github.com/DoMinhHHung/beexster/service/identity/internal/application/requestreactivation"
 )
 
 type ReactivationPolicy struct {

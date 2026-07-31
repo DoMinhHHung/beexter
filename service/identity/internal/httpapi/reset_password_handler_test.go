@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	appresetpassword "github.com/DoMinhHHung/beexter/service/identity/internal/application/resetpassword"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appresetpassword "github.com/DoMinhHHung/beexster/service/identity/internal/application/resetpassword"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 const handlerPasswordResetTokenID = "0198f124-659f-7cbd-a441-dc7eea175073"
