@@ -12,15 +12,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
 	domainlocale "github.com/DoMinhHHung/beexter/service/identity/internal/domain/locale"
 	"github.com/google/uuid"
 )
 
 const (
-	EventEmailVerificationRequested = "identity.email_verification_requested"
-	EventPasswordResetRequested     = "identity.password_reset_requested"
-	maxBatchSize                    = 100
-	maxLastErrorLength              = 1000
+	EventEmailVerificationRequested     = "identity.email_verification_requested"
+	EventPasswordResetRequested         = "identity.password_reset_requested"
+	passwordResetPhaseSessionRevocation = "session_revocation"
+	maxBatchSize                        = 100
+	maxLastErrorLength                  = 1000
 )
 
 var (
@@ -139,6 +141,14 @@ type PasswordResetMailer interface {
 	) error
 }
 
+type SessionRevoker interface {
+	RevokeCreatedAtOrBefore(
+		ctx context.Context,
+		userID identity.ID,
+		cutoff time.Time,
+	) error
+}
+
 type UUIDGenerator interface {
 	GenerateString() (string, error)
 }
@@ -147,6 +157,7 @@ type Worker struct {
 	repository          Repository
 	verificationMailer  VerificationMailer
 	passwordResetMailer PasswordResetMailer
+	sessionRevoker      SessionRevoker
 	ids                 UUIDGenerator
 	logger              *slog.Logger
 	config              WorkerConfig
@@ -157,6 +168,7 @@ func NewWorker(
 	repository Repository,
 	verificationMailer VerificationMailer,
 	passwordResetMailer PasswordResetMailer,
+	sessionRevoker SessionRevoker,
 	ids UUIDGenerator,
 	logger *slog.Logger,
 	config WorkerConfig,
@@ -165,6 +177,7 @@ func NewWorker(
 	if repository == nil ||
 		verificationMailer == nil ||
 		passwordResetMailer == nil ||
+		sessionRevoker == nil ||
 		ids == nil ||
 		logger == nil ||
 		now == nil {
@@ -179,6 +192,7 @@ func NewWorker(
 		repository:          repository,
 		verificationMailer:  verificationMailer,
 		passwordResetMailer: passwordResetMailer,
+		sessionRevoker:      sessionRevoker,
 		ids:                 ids,
 		logger:              logger,
 		config:              config,
@@ -381,6 +395,29 @@ func (w *Worker) processPasswordReset(
 		return
 	}
 
+	if payload.Phase == passwordResetPhaseSessionRevocation {
+		w.processPasswordResetSessionRevocation(
+			ctx,
+			event,
+			lockID,
+			payload.IdentityID,
+			payload.SessionCutoff,
+		)
+		return
+	}
+	if payload.Phase != "" {
+		w.reschedule(
+			ctx,
+			event,
+			lockID,
+			fmt.Errorf(
+				"unsupported password-reset outbox phase %q",
+				payload.Phase,
+			),
+		)
+		return
+	}
+
 	loadContext, cancelLoad := context.WithTimeout(
 		ctx,
 		w.config.DatabaseTimeout,
@@ -437,6 +474,64 @@ func (w *Worker) processPasswordReset(
 			event,
 			lockID,
 			fmt.Errorf("send password-reset message: %w", err),
+		)
+		return
+	}
+
+	w.markProcessed(ctx, event, lockID)
+}
+
+func (w *Worker) processPasswordResetSessionRevocation(
+	ctx context.Context,
+	event Event,
+	lockID string,
+	rawUserID string,
+	rawCutoff string,
+) {
+	userID, err := identity.ParseID(rawUserID)
+	if err != nil {
+		w.reschedule(
+			ctx,
+			event,
+			lockID,
+			fmt.Errorf(
+				"validate session-revocation user ID: %w",
+				err,
+			),
+		)
+		return
+	}
+
+	cutoff, err := time.Parse(time.RFC3339, rawCutoff)
+	if err != nil || cutoff.UTC().Format(time.RFC3339) != rawCutoff {
+		w.reschedule(
+			ctx,
+			event,
+			lockID,
+			fmt.Errorf(
+				"validate session-revocation cutoff %q",
+				rawCutoff,
+			),
+		)
+		return
+	}
+
+	revocationContext, cancelRevocation := context.WithTimeout(
+		ctx,
+		w.config.DeliveryTimeout,
+	)
+	err = w.sessionRevoker.RevokeCreatedAtOrBefore(
+		revocationContext,
+		userID,
+		cutoff.UTC(),
+	)
+	cancelRevocation()
+	if err != nil {
+		w.reschedule(
+			ctx,
+			event,
+			lockID,
+			fmt.Errorf("revoke refresh sessions: %w", err),
 		)
 		return
 	}
@@ -533,9 +628,11 @@ func (w *Worker) reschedule(
 }
 
 type tokenEmailPayload struct {
-	IdentityID string `json:"identity_id"`
-	TokenID    string `json:"token_id"`
-	Locale     string `json:"locale"`
+	IdentityID    string `json:"identity_id"`
+	TokenID       string `json:"token_id"`
+	Locale        string `json:"locale"`
+	Phase         string `json:"phase"`
+	SessionCutoff string `json:"session_cutoff"`
 }
 
 func decodeTokenEmailPayload(

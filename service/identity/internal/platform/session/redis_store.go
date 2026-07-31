@@ -115,6 +115,38 @@ redis.call("DEL", KEYS[1])
 return deleted
 `
 
+const revokeSessionsCreatedAtOrBeforeScript = `
+local session_keys = redis.call("SMEMBERS", KEYS[1])
+local deleted = 0
+
+for _, session_key in ipairs(session_keys) do
+    local raw_session = redis.call("GET", session_key)
+    if not raw_session then
+        redis.call("SREM", KEYS[1], session_key)
+    else
+        local decoded_ok, current = pcall(cjson.decode, raw_session)
+        if not decoded_ok or type(current) ~= "table" then
+            deleted = deleted + redis.call("DEL", session_key)
+            redis.call("SREM", KEYS[1], session_key)
+        elseif current.user_id ~= ARGV[1] then
+            redis.call("SREM", KEYS[1], session_key)
+        elseif type(current.created_at) ~= "string" then
+            deleted = deleted + redis.call("DEL", session_key)
+            redis.call("SREM", KEYS[1], session_key)
+        elseif current.created_at <= ARGV[2] then
+            deleted = deleted + redis.call("DEL", session_key)
+            redis.call("SREM", KEYS[1], session_key)
+        end
+    end
+end
+
+if redis.call("SCARD", KEYS[1]) == 0 then
+    redis.call("DEL", KEYS[1])
+end
+
+return deleted
+`
+
 var (
 	ErrNotInitialized          = errors.New("session store is not initialized")
 	ErrInvalidContext          = errors.New("session context is required")
@@ -126,13 +158,14 @@ var (
 )
 
 type Store struct {
-	client           *redis.Client
-	operationTimeout time.Duration
-	saveScript       *redis.Script
-	deleteScript     *redis.Script
-	listScript       *redis.Script
-	rotateScript     *redis.Script
-	revokeAllScript  *redis.Script
+	client             *redis.Client
+	operationTimeout   time.Duration
+	saveScript         *redis.Script
+	deleteScript       *redis.Script
+	listScript         *redis.Script
+	rotateScript       *redis.Script
+	revokeAllScript    *redis.Script
+	revokeBeforeScript *redis.Script
 }
 
 type redisPayload struct {
@@ -159,13 +192,14 @@ func NewStore(
 	}
 
 	return &Store{
-		client:           client,
-		operationTimeout: operationTimeout,
-		saveScript:       redis.NewScript(saveSessionScript),
-		deleteScript:     redis.NewScript(deleteSessionScript),
-		listScript:       redis.NewScript(listSessionsScript),
-		rotateScript:     redis.NewScript(rotateSessionScript),
-		revokeAllScript:  redis.NewScript(revokeAllSessionsScript),
+		client:             client,
+		operationTimeout:   operationTimeout,
+		saveScript:         redis.NewScript(saveSessionScript),
+		deleteScript:       redis.NewScript(deleteSessionScript),
+		listScript:         redis.NewScript(listSessionsScript),
+		rotateScript:       redis.NewScript(rotateSessionScript),
+		revokeAllScript:    redis.NewScript(revokeAllSessionsScript),
+		revokeBeforeScript: redis.NewScript(revokeSessionsCreatedAtOrBeforeScript),
 	}, nil
 }
 
@@ -375,6 +409,41 @@ func (s *Store) RevokeAll(
 	return nil
 }
 
+func (s *Store) RevokeCreatedAtOrBefore(
+	ctx context.Context,
+	userID identity.ID,
+	cutoff time.Time,
+) error {
+	if err := s.validate(ctx); err != nil {
+		return err
+	}
+
+	if userID.IsZero() || cutoff.IsZero() {
+		return ErrInvalidSession
+	}
+
+	operationContext, cancelOperation := context.WithTimeout(
+		ctx,
+		s.operationTimeout,
+	)
+	defer cancelOperation()
+
+	if _, err := s.revokeBeforeScript.Run(
+		operationContext,
+		s.client,
+		[]string{indexKey(userID)},
+		userID.String(),
+		cutoff.UTC().Truncate(time.Second).Format(time.RFC3339),
+	).Result(); err != nil {
+		return fmt.Errorf(
+			"revoke refresh sessions created at or before cutoff in Redis: %w",
+			err,
+		)
+	}
+
+	return nil
+}
+
 func (s *Store) validate(ctx context.Context) error {
 	if s == nil ||
 		s.client == nil ||
@@ -382,7 +451,8 @@ func (s *Store) validate(ctx context.Context) error {
 		s.deleteScript == nil ||
 		s.listScript == nil ||
 		s.rotateScript == nil ||
-		s.revokeAllScript == nil {
+		s.revokeAllScript == nil ||
+		s.revokeBeforeScript == nil {
 		return ErrNotInitialized
 	}
 
@@ -528,9 +598,8 @@ func validateSession(session appauth.Session) error {
 	expiresAt := session.ExpiresAt.UTC().Truncate(time.Second)
 	lastUsedAt := session.LastUsedAt.UTC().Truncate(time.Second)
 
-	if !expiresAt.Equal(createdAt.Add(refreshTokenTTL)) ||
-		lastUsedAt.Before(createdAt) ||
-		lastUsedAt.After(expiresAt) {
+	if lastUsedAt.Before(createdAt) ||
+		!expiresAt.Equal(lastUsedAt.Add(refreshTokenTTL)) {
 		return ErrInvalidSession
 	}
 

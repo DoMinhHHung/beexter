@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
 )
 
 const (
@@ -32,33 +34,35 @@ func TestWorkerProcessesVerificationEvent(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{
-		events: []Event{validEvent(EventEmailVerificationRequested, 0)},
+		events: []Event{validTokenEmailEvent(
+			EventEmailVerificationRequested,
+			0,
+		)},
 		verificationDelivery: VerificationDelivery{
 			Email:     "user@example.com",
 			ExpiresAt: workerTestNow.Add(time.Hour),
 		},
 	}
 
-	verificationMailer := &fakeVerificationMailer{
-		send: func(
-			_ context.Context,
-			message VerificationMessage,
-		) error {
-			if message.Recipient != "user@example.com" {
-				t.Fatalf("unexpected recipient %q", message.Recipient)
-			}
-			if message.Locale != "ja" {
-				t.Fatalf("expected locale ja, got %q", message.Locale)
-			}
-			return nil
-		},
-	}
-
 	worker := newTestWorker(
 		t,
 		repository,
-		verificationMailer,
+		&fakeVerificationMailer{
+			send: func(
+				_ context.Context,
+				message VerificationMessage,
+			) error {
+				if message.Recipient != "user@example.com" {
+					t.Fatalf("unexpected recipient %q", message.Recipient)
+				}
+				if message.Locale != "ja" {
+					t.Fatalf("expected locale ja, got %q", message.Locale)
+				}
+				return nil
+			},
+		},
 		&fakePasswordResetMailer{},
+		&fakeSessionRevoker{},
 	)
 	worker.processCycle(context.Background())
 
@@ -74,7 +78,10 @@ func TestWorkerProcessesPasswordResetEvent(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{
-		events: []Event{validEvent(EventPasswordResetRequested, 0)},
+		events: []Event{validTokenEmailEvent(
+			EventPasswordResetRequested,
+			0,
+		)},
 		passwordResetDelivery: PasswordResetDelivery{
 			Email:     "user@example.com",
 			ExpiresAt: workerTestNow.Add(time.Hour),
@@ -82,27 +89,26 @@ func TestWorkerProcessesPasswordResetEvent(t *testing.T) {
 	}
 
 	resetMailerCalled := false
-	passwordResetMailer := &fakePasswordResetMailer{
-		send: func(
-			_ context.Context,
-			message PasswordResetMessage,
-		) error {
-			resetMailerCalled = true
-			if message.TokenID != testTokenID {
-				t.Fatalf("unexpected token ID %q", message.TokenID)
-			}
-			if message.Locale != "ja" {
-				t.Fatalf("expected locale ja, got %q", message.Locale)
-			}
-			return nil
-		},
-	}
-
 	worker := newTestWorker(
 		t,
 		repository,
 		&fakeVerificationMailer{},
-		passwordResetMailer,
+		&fakePasswordResetMailer{
+			send: func(
+				_ context.Context,
+				message PasswordResetMessage,
+			) error {
+				resetMailerCalled = true
+				if message.TokenID != testTokenID {
+					t.Fatalf("unexpected token ID %q", message.TokenID)
+				}
+				if message.Locale != "ja" {
+					t.Fatalf("expected locale ja, got %q", message.Locale)
+				}
+				return nil
+			},
+		},
+		&fakeSessionRevoker{},
 	)
 	worker.processCycle(context.Background())
 
@@ -114,24 +120,67 @@ func TestWorkerProcessesPasswordResetEvent(t *testing.T) {
 	}
 }
 
-func TestWorkerReschedulesFailedPasswordResetDelivery(t *testing.T) {
+func TestWorkerProcessesRefreshSessionsRevocationEvent(
+	t *testing.T,
+) {
 	t.Parallel()
 
 	repository := &fakeRepository{
-		events: []Event{validEvent(EventPasswordResetRequested, 1)},
-		passwordResetDelivery: PasswordResetDelivery{
-			Email:     "user@example.com",
-			ExpiresAt: workerTestNow.Add(time.Hour),
+		events: []Event{validSessionRevocationEvent(0)},
+	}
+
+	revokerCalled := false
+	worker := newTestWorker(
+		t,
+		repository,
+		&fakeVerificationMailer{},
+		&fakePasswordResetMailer{},
+		&fakeSessionRevoker{
+			revokeCreatedAtOrBefore: func(
+				_ context.Context,
+				userID identity.ID,
+				cutoff time.Time,
+			) error {
+				revokerCalled = true
+				if userID.String() != testIdentityID {
+					t.Fatalf("unexpected user ID %q", userID)
+				}
+				if !cutoff.Equal(workerTestNow) {
+					t.Fatalf("unexpected cutoff %s", cutoff)
+				}
+				return nil
+			},
 		},
+	)
+	worker.processCycle(context.Background())
+
+	if !revokerCalled {
+		t.Fatal("expected session revoker call")
+	}
+	if !repository.marked {
+		t.Fatal("expected event to be marked processed")
+	}
+}
+
+func TestWorkerReschedulesFailedSessionRevocation(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{
+		events: []Event{validSessionRevocationEvent(1)},
 	}
 
 	worker := newTestWorker(
 		t,
 		repository,
 		&fakeVerificationMailer{},
-		&fakePasswordResetMailer{
-			send: func(context.Context, PasswordResetMessage) error {
-				return errors.New("SMTP unavailable")
+		&fakePasswordResetMailer{},
+		&fakeSessionRevoker{
+			revokeCreatedAtOrBefore: func(
+				context.Context,
+				identity.ID,
+				time.Time,
+			) error {
+				return errors.New("redis unavailable")
 			},
 		},
 	)
@@ -153,12 +202,47 @@ func TestWorkerReschedulesFailedPasswordResetDelivery(t *testing.T) {
 	}
 }
 
+func TestWorkerReschedulesFailedPasswordResetDelivery(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{
+		events: []Event{validTokenEmailEvent(
+			EventPasswordResetRequested,
+			1,
+		)},
+		passwordResetDelivery: PasswordResetDelivery{
+			Email:     "user@example.com",
+			ExpiresAt: workerTestNow.Add(time.Hour),
+		},
+	}
+
+	worker := newTestWorker(
+		t,
+		repository,
+		&fakeVerificationMailer{},
+		&fakePasswordResetMailer{
+			send: func(context.Context, PasswordResetMessage) error {
+				return errors.New("SMTP unavailable")
+			},
+		},
+		&fakeSessionRevoker{},
+	)
+	worker.processCycle(context.Background())
+
+	if !repository.rescheduled {
+		t.Fatal("expected event to be rescheduled")
+	}
+}
+
 func TestWorkerSkipsRevokedPasswordResetToken(t *testing.T) {
 	t.Parallel()
 
 	revokedAt := workerTestNow
 	repository := &fakeRepository{
-		events: []Event{validEvent(EventPasswordResetRequested, 0)},
+		events: []Event{validTokenEmailEvent(
+			EventPasswordResetRequested,
+			0,
+		)},
 		passwordResetDelivery: PasswordResetDelivery{
 			Email:     "user@example.com",
 			ExpiresAt: workerTestNow.Add(time.Hour),
@@ -176,6 +260,7 @@ func TestWorkerSkipsRevokedPasswordResetToken(t *testing.T) {
 				return nil
 			},
 		},
+		&fakeSessionRevoker{},
 	)
 	worker.processCycle(context.Background())
 
@@ -197,6 +282,7 @@ func newTestWorker(
 	repository Repository,
 	verificationMailer VerificationMailer,
 	passwordResetMailer PasswordResetMailer,
+	sessionRevoker SessionRevoker,
 ) *Worker {
 	t.Helper()
 
@@ -204,6 +290,7 @@ func newTestWorker(
 		repository,
 		verificationMailer,
 		passwordResetMailer,
+		sessionRevoker,
 		&fixedUUIDGenerator{value: testLockID},
 		slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		WorkerConfig{
@@ -223,7 +310,7 @@ func newTestWorker(
 	return worker
 }
 
-func validEvent(eventType string, attemptCount int) Event {
+func validTokenEmailEvent(eventType string, attemptCount int) Event {
 	payload, err := json.Marshal(map[string]string{
 		"identity_id": testIdentityID,
 		"token_id":    testTokenID,
@@ -237,6 +324,26 @@ func validEvent(eventType string, attemptCount int) Event {
 		ID:           testEventID,
 		AggregateID:  testIdentityID,
 		EventType:    eventType,
+		Payload:      payload,
+		AttemptCount: attemptCount,
+	}
+}
+
+func validSessionRevocationEvent(attemptCount int) Event {
+	payload, err := json.Marshal(map[string]string{
+		"identity_id":    testIdentityID,
+		"token_id":       testTokenID,
+		"phase":          passwordResetPhaseSessionRevocation,
+		"session_cutoff": workerTestNow.Format(time.RFC3339),
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return Event{
+		ID:           testEventID,
+		AggregateID:  testIdentityID,
+		EventType:    EventPasswordResetRequested,
 		Payload:      payload,
 		AttemptCount: attemptCount,
 	}
@@ -326,6 +433,25 @@ func (f *fakePasswordResetMailer) SendPasswordReset(
 		return nil
 	}
 	return f.send(ctx, message)
+}
+
+type fakeSessionRevoker struct {
+	revokeCreatedAtOrBefore func(
+		context.Context,
+		identity.ID,
+		time.Time,
+	) error
+}
+
+func (f *fakeSessionRevoker) RevokeCreatedAtOrBefore(
+	ctx context.Context,
+	userID identity.ID,
+	cutoff time.Time,
+) error {
+	if f.revokeCreatedAtOrBefore == nil {
+		return nil
+	}
+	return f.revokeCreatedAtOrBefore(ctx, userID, cutoff)
 }
 
 type fixedUUIDGenerator struct {

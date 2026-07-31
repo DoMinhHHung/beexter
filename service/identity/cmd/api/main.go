@@ -17,6 +17,7 @@ import (
 	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
 	refreshapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
 	resendverificationapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/resendverification"
+	resetpasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/resetpassword"
 	sessionmanagementapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/sessionmanagement"
 	signupapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
 	verifyemailapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
@@ -63,6 +64,11 @@ func run(logger *slog.Logger) error {
 	forgotPasswordConfig, err := config.LoadForgotPassword()
 	if err != nil {
 		return fmt.Errorf("load forgot-password config: %w", err)
+	}
+
+	resetPasswordConfig, err := config.LoadResetPassword()
+	if err != nil {
+		return fmt.Errorf("load reset-password config: %w", err)
 	}
 
 	applicationContext, stopApplication := signal.NotifyContext(
@@ -181,6 +187,18 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create forgot-password rate limiter: %w", err)
 	}
 
+	resetPasswordLimiter, err := ratelimit.NewResetPasswordLimiter(
+		slidingWindowLimiter,
+		rateLimitKeys,
+		ratelimit.ResetPasswordPolicy{
+			IPLimit:  resetPasswordConfig.IPLimit,
+			IPWindow: resetPasswordConfig.IPWindow,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("create reset-password rate limiter: %w", err)
+	}
+
 	signupRepository, err := postgres.NewSignupRepository(database)
 	if err != nil {
 		return fmt.Errorf("create signup repository: %w", err)
@@ -218,6 +236,11 @@ func run(logger *slog.Logger) error {
 	forgotPasswordRepository, err := postgres.NewForgotPasswordRepository(database)
 	if err != nil {
 		return fmt.Errorf("create forgot-password repository: %w", err)
+	}
+
+	resetPasswordRepository, err := postgres.NewResetPasswordRepository(database)
+	if err != nil {
+		return fmt.Errorf("create reset-password repository: %w", err)
 	}
 
 	passwordHasher := passwordhash.New()
@@ -332,6 +355,17 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create forgot-password use case: %w", err)
 	}
 
+	resetPasswordUseCase, err := resetpasswordapp.New(
+		resetPasswordRepository,
+		passwordHasher,
+		resetPasswordLimiter,
+		sessionStore,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("create reset-password use case: %w", err)
+	}
+
 	emailCatalog, err := emaildelivery.NewCatalog()
 	if err != nil {
 		return fmt.Errorf("create email translation catalog: %w", err)
@@ -392,6 +426,7 @@ func run(logger *slog.Logger) error {
 		outboxRepository,
 		verificationMailer,
 		passwordResetMailer,
+		sessionStore,
 		identifierGenerator,
 		logger,
 		outboxapp.WorkerConfig{
@@ -420,6 +455,7 @@ func run(logger *slog.Logger) error {
 			VerifyEmail:        verifyEmailUseCase,
 			ResendVerification: resendVerificationUseCase,
 			ForgotPassword:     forgotPasswordUseCase,
+			ResetPassword:      resetPasswordUseCase,
 			Authenticator:      authenticateUseCase,
 			Sessions:           sessionManagementService,
 		},
