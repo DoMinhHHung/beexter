@@ -41,12 +41,15 @@ func newJWK(publicKey *rsa.PublicKey, keyID string) JWK {
 	}
 }
 
-// JWKS returns a deterministic, single-key public key set. The returned slice
-// is a copy, so callers cannot mutate the service's cached representation.
+// JWKS returns the active public key first, followed by supplemental
+// verification keys sorted by key ID. The returned slice is a copy, so callers
+// cannot mutate the service's cached representation.
 func (s *RS256) JWKS() JWKS {
-	if s == nil {
+	if s == nil || len(s.publicJWKS) == 0 {
 		return JWKS{Keys: []JWK{}}
 	}
 
-	return JWKS{Keys: []JWK{s.publicJWK}}
+	keys := make([]JWK, len(s.publicJWKS))
+	copy(keys, s.publicJWKS)
+	return JWKS{Keys: keys}
 }

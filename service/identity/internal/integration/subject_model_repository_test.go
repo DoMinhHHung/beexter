@@ -6,8 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/netip"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -23,14 +23,9 @@ import (
 )
 
 func TestSubjectRepositoriesPersistPlatformRoles(t *testing.T) {
-	if strings.TrimSpace(os.Getenv("IDENTITY_INTEGRATION_TEST")) != "1" {
-		t.Skip("set IDENTITY_INTEGRATION_TEST=1 and use an isolated PostgreSQL instance")
-	}
+	requireIntegrationTests(t)
 
-	databaseURL := integrationDatabaseURL()
-	if databaseURL == "" {
-		t.Skip("DATABASE_DIRECT_URL or DATABASE_URL is required")
-	}
+	databaseURL := requireIntegrationDatabaseURL(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -39,7 +34,7 @@ func TestSubjectRepositoriesPersistPlatformRoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open PostgreSQL: %v", err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatalf("ping PostgreSQL: %v", err)
 	}
@@ -245,6 +240,30 @@ func TestSubjectRepositoriesPersistPlatformRoles(t *testing.T) {
 		)
 	}
 
+	compactActorID := strings.ReplaceAll(actorID.String(), "-", "")
+	raceApplicationName := "identity-lock-" + compactActorID[:16]
+	racePoolConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal("parse concurrent-creation PostgreSQL configuration")
+	}
+	if racePoolConfig.ConnConfig.RuntimeParams == nil {
+		racePoolConfig.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+	racePoolConfig.ConnConfig.RuntimeParams["application_name"] = raceApplicationName
+	racePoolConfig.MaxConns = 1
+	racePool, err := pgxpool.NewWithConfig(ctx, racePoolConfig)
+	if err != nil {
+		t.Fatal("open concurrent-creation PostgreSQL pool")
+	}
+	defer racePool.Close()
+	if err := racePool.Ping(ctx); err != nil {
+		t.Fatal("ping concurrent-creation PostgreSQL pool")
+	}
+	raceRepository, err := postgres.NewPrivilegedIdentityRepository(racePool)
+	if err != nil {
+		t.Fatalf("create concurrent privileged repository: %v", err)
+	}
+
 	demotionTx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin concurrent demotion: %v", err)
@@ -276,43 +295,64 @@ func TestSubjectRepositoriesPersistPlatformRoles(t *testing.T) {
 	}
 	raceEmail := "integration-race+" + strings.ReplaceAll(actorID.String(), "-", "") + "@example.com"
 	raceResult := make(chan error, 1)
+	raceCreateContext, cancelRaceCreate := context.WithCancel(ctx)
+	defer cancelRaceCreate()
 	go func() {
-		raceResult <- privilegedRepository.Create(ctx, appcreateidentity.CreateParams{
-			ActorID:                    actorID,
-			IdentityID:                 raceTargetID,
-			VerificationTokenID:        raceVerificationID,
-			OutboxEventID:              raceOutboxID,
-			Email:                      raceEmail,
-			PasswordHash:               actorPasswordHash,
-			PlatformRole:               identity.PlatformRoleViceAdmin,
-			Status:                     identity.StatusActive,
-			Locale:                     "en",
-			CreatedAt:                  now.Add(3 * time.Minute),
-			VerificationTokenExpiresAt: now.Add(time.Hour),
-			OutboxEventType:            "identity.email_verification_requested",
-		})
+		raceResult <- raceRepository.Create(
+			raceCreateContext,
+			appcreateidentity.CreateParams{
+				ActorID:                    actorID,
+				IdentityID:                 raceTargetID,
+				VerificationTokenID:        raceVerificationID,
+				OutboxEventID:              raceOutboxID,
+				Email:                      raceEmail,
+				PasswordHash:               actorPasswordHash,
+				PlatformRole:               identity.PlatformRoleViceAdmin,
+				Status:                     identity.StatusActive,
+				Locale:                     "en",
+				CreatedAt:                  now.Add(3 * time.Minute),
+				VerificationTokenExpiresAt: now.Add(time.Hour),
+				OutboxEventType:            "identity.email_verification_requested",
+			},
+		)
 	}()
 
-	select {
-	case earlyErr := <-raceResult:
-		t.Fatalf(
-			"privileged creation did not wait for concurrent demotion: %v",
-			earlyErr,
-		)
-	case <-time.After(250 * time.Millisecond):
+	lockObservationContext, cancelLockObservation := context.WithTimeout(
+		ctx,
+		5*time.Second,
+	)
+	defer cancelLockObservation()
+	if err := waitForBlockedPrivilegedActorQuery(
+		lockObservationContext,
+		pool,
+		raceApplicationName,
+	); err != nil {
+		cancelRaceCreate()
+		t.Fatalf("observe privileged actor row lock: %v", err)
 	}
 
 	if err := demotionTx.Commit(ctx); err != nil {
 		t.Fatalf("commit concurrent actor demotion: %v", err)
 	}
+
+	raceCompletionContext, cancelRaceCompletion := context.WithTimeout(
+		ctx,
+		5*time.Second,
+	)
+	defer cancelRaceCompletion()
 	select {
 	case raceErr := <-raceResult:
 		if !errors.Is(raceErr, appcreateidentity.ErrActorForbidden) {
 			t.Fatalf("expected race-safe actor rejection, got %v", raceErr)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("privileged creation remained blocked after demotion committed")
+	case <-raceCompletionContext.Done():
+		cancelRaceCreate()
+		t.Fatalf(
+			"privileged creation remained blocked after demotion committed: %v",
+			raceCompletionContext.Err(),
+		)
 	}
+	cancelRaceCreate()
 
 	var raceTargetCount int
 	if err := pool.QueryRow(
@@ -326,27 +366,147 @@ func TestSubjectRepositoriesPersistPlatformRoles(t *testing.T) {
 		t.Fatal("concurrent demotion raced with privileged identity creation")
 	}
 
-	staleTokenTarget := "integration-stale-admin+" + strings.ReplaceAll(actorID.String(), "-", "") + "@example.com"
-	_, err = privilegedUseCase.Execute(ctx, appcreateidentity.Input{
+	assertAuthoritativeActorRejected(
+		t,
+		ctx,
+		pool,
+		privilegedUseCase,
+		actorID,
+		password,
+		"integration-stale-demoted+"+compactActorID+"@example.com",
+	)
+
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE identity.identities
+		 SET platform_role = 'ADMIN', status = 'active',
+		     email_verified_at = NULL, deleted_at = NULL, updated_at = $2
+		 WHERE id = $1`,
+		actorID.String(),
+		now.Add(4*time.Minute),
+	); err != nil {
+		t.Fatalf("make authoritative actor unverified: %v", err)
+	}
+	assertAuthoritativeActorRejected(
+		t,
+		ctx,
+		pool,
+		privilegedUseCase,
+		actorID,
+		password,
+		"integration-stale-unverified+"+compactActorID+"@example.com",
+	)
+
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE identity.identities
+		 SET platform_role = 'ADMIN', status = 'inactive',
+		     email_verified_at = $2, deleted_at = NULL, updated_at = $2
+		 WHERE id = $1`,
+		actorID.String(),
+		now.Add(5*time.Minute),
+	); err != nil {
+		t.Fatalf("make authoritative actor inactive: %v", err)
+	}
+	assertAuthoritativeActorRejected(
+		t,
+		ctx,
+		pool,
+		privilegedUseCase,
+		actorID,
+		password,
+		"integration-stale-inactive+"+compactActorID+"@example.com",
+	)
+
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE identity.identities
+		 SET platform_role = 'ADMIN', status = 'inactive',
+		     email_verified_at = $2, deleted_at = $2, updated_at = $2
+		 WHERE id = $1`,
+		actorID.String(),
+		now.Add(6*time.Minute),
+	); err != nil {
+		t.Fatalf("make authoritative actor deleted: %v", err)
+	}
+	assertAuthoritativeActorRejected(
+		t,
+		ctx,
+		pool,
+		privilegedUseCase,
+		actorID,
+		password,
+		"integration-stale-deleted+"+compactActorID+"@example.com",
+	)
+}
+
+func waitForBlockedPrivilegedActorQuery(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	applicationName string,
+) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		var blocked bool
+		err := pool.QueryRow(
+			ctx,
+			`SELECT EXISTS (
+				SELECT 1
+				FROM pg_stat_activity
+				WHERE application_name = $1
+				  AND wait_event_type = 'Lock'
+				  AND cardinality(pg_blocking_pids(pid)) > 0
+			)`,
+			applicationName,
+		).Scan(&blocked)
+		if err != nil {
+			return fmt.Errorf("inspect PostgreSQL lock wait: %w", err)
+		}
+		if blocked {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for PostgreSQL lock: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func assertAuthoritativeActorRejected(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	useCase *appcreateidentity.UseCase,
+	actorID identity.ID,
+	password string,
+	targetEmail string,
+) {
+	t.Helper()
+
+	_, err := useCase.Execute(ctx, appcreateidentity.Input{
 		ActorID:           actorID,
 		ActorPlatformRole: identity.PlatformRoleAdmin,
-		Email:             staleTokenTarget,
+		Email:             targetEmail,
 		Password:          password,
 		PlatformRole:      "VICE_ADMIN",
 		Locale:            "en",
 	})
 	assertDomainErrorCode(t, err, domain.ErrForbidden)
 
-	var staleTargetCount int
+	var targetCount int
 	if err := pool.QueryRow(
 		ctx,
 		`SELECT count(*) FROM identity.identities WHERE email = $1`,
-		staleTokenTarget,
-	).Scan(&staleTargetCount); err != nil {
-		t.Fatalf("check stale-token target: %v", err)
+		targetEmail,
+	).Scan(&targetCount); err != nil {
+		t.Fatalf("check rejected privileged target: %v", err)
 	}
-	if staleTargetCount != 0 {
-		t.Fatal("demoted ADMIN created an identity with a stale ADMIN token")
+	if targetCount != 0 {
+		t.Fatalf("authoritatively rejected actor inserted target %q", targetEmail)
 	}
 }
 

@@ -7,9 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -19,14 +16,9 @@ import (
 )
 
 func TestIdentitySubjectModelMigration(t *testing.T) {
-	if strings.TrimSpace(os.Getenv("IDENTITY_INTEGRATION_TEST")) != "1" {
-		t.Skip("set IDENTITY_INTEGRATION_TEST=1 and use an isolated PostgreSQL instance")
-	}
+	requireIntegrationTests(t)
 
-	databaseURL := integrationDatabaseURL()
-	if databaseURL == "" {
-		t.Skip("DATABASE_DIRECT_URL or DATABASE_URL is required")
-	}
+	databaseURL := requireIntegrationDatabaseURL(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -35,7 +27,7 @@ func TestIdentitySubjectModelMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open PostgreSQL: %v", err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatalf("ping PostgreSQL: %v", err)
 	}
@@ -173,33 +165,15 @@ func TestIdentitySubjectModelMigration(t *testing.T) {
 	}
 }
 
-func integrationDatabaseURL() string {
-	if directURL := strings.TrimSpace(os.Getenv("DATABASE_DIRECT_URL")); directURL != "" {
-		return directURL
-	}
-	return strings.TrimSpace(os.Getenv("DATABASE_URL"))
-}
-
 func migrationBody(t *testing.T, name string) string {
 	t.Helper()
 
-	_, sourceFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("locate integration test source")
-	}
-	migrationPath := filepath.Join(
-		filepath.Dir(sourceFile),
-		"..",
-		"..",
-		"migrations",
-		name,
-	)
-	rawMigration, err := os.ReadFile(migrationPath)
+	rawMigration, err := readMigration(name)
 	if err != nil {
-		t.Fatalf("read migration %s: %v", name, err)
+		t.Fatal(err)
 	}
 
-	trimmed := strings.TrimSpace(string(rawMigration))
+	trimmed := strings.TrimSpace(rawMigration)
 	if !strings.HasPrefix(trimmed, "BEGIN;") || !strings.HasSuffix(trimmed, "COMMIT;") {
 		t.Fatalf("migration %s must use an explicit transaction", name)
 	}

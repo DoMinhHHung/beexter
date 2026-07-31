@@ -67,22 +67,30 @@ func TestJWKSHandlerOutputIsDeterministic(t *testing.T) {
 	}
 }
 
-func TestJWKSHandlerKeyMatchesSigner(t *testing.T) {
+func TestJWKSHandlerReturnsActiveKeyFirst(t *testing.T) {
 	t.Parallel()
 
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	activeKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		t.Fatalf("generate RSA key: %v", err)
+		t.Fatalf("generate active RSA key: %v", err)
 	}
-	provider, err := accesstoken.New(privateKey, accesstoken.Config{
+	previousKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate retained RSA key: %v", err)
+	}
+	provider, err := accesstoken.New(activeKey, accesstoken.Config{
 		Issuer:           "https://identity.example.com",
-		Audience:         "beexster-services",
-		KeyID:            "identity-key-2026-01",
+		Audience:         "beexter-services",
+		KeyID:            "identity-active-2026-08",
 		AccessTokenTTL:   15 * time.Minute,
 		AllowedClockSkew: 30 * time.Second,
+		VerificationKeys: []accesstoken.VerificationKey{{
+			KeyID:     "identity-previous-2026-07",
+			PublicKey: &previousKey.PublicKey,
+		}},
 	})
 	if err != nil {
-		t.Fatalf("create access-token service: %v", err)
+		t.Fatalf("create multi-key access-token service: %v", err)
 	}
 
 	response := httptest.NewRecorder()
@@ -95,24 +103,38 @@ func TestJWKSHandlerKeyMatchesSigner(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&document); err != nil {
 		t.Fatalf("decode JWKS: %v", err)
 	}
-	if len(document.Keys) != 1 {
-		t.Fatalf("expected exactly one JWK, got %d", len(document.Keys))
+	if len(document.Keys) != 2 {
+		t.Fatalf("expected active and retained JWKs, got %d", len(document.Keys))
 	}
+	if document.Keys[0].KeyID != "identity-active-2026-08" ||
+		document.Keys[1].KeyID != "identity-previous-2026-07" {
+		t.Fatalf("unexpected JWKS key order: %+v", document.Keys)
+	}
+	assertJWKMatchesPublicKey(t, document.Keys[0], &activeKey.PublicKey)
+	assertJWKMatchesPublicKey(t, document.Keys[1], &previousKey.PublicKey)
+}
 
-	modulus, err := base64.RawURLEncoding.DecodeString(document.Keys[0].Modulus)
+func assertJWKMatchesPublicKey(
+	t *testing.T,
+	key accesstoken.JWK,
+	publicKey *rsa.PublicKey,
+) {
+	t.Helper()
+
+	modulus, err := base64.RawURLEncoding.DecodeString(key.Modulus)
 	if err != nil {
 		t.Fatalf("decode JWK modulus: %v", err)
 	}
-	if !bytes.Equal(modulus, privateKey.PublicKey.N.Bytes()) {
-		t.Fatal("JWK modulus does not match signer public key")
+	if !bytes.Equal(modulus, publicKey.N.Bytes()) {
+		t.Fatalf("JWK %q modulus does not match public key", key.KeyID)
 	}
 
-	exponent, err := base64.RawURLEncoding.DecodeString(document.Keys[0].Exponent)
+	exponent, err := base64.RawURLEncoding.DecodeString(key.Exponent)
 	if err != nil {
 		t.Fatalf("decode JWK exponent: %v", err)
 	}
-	if new(big.Int).SetBytes(exponent).Cmp(big.NewInt(int64(privateKey.PublicKey.E))) != 0 {
-		t.Fatal("JWK exponent does not match signer public key")
+	if new(big.Int).SetBytes(exponent).Cmp(big.NewInt(int64(publicKey.E))) != 0 {
+		t.Fatalf("JWK %q exponent does not match public key", key.KeyID)
 	}
 }
 
@@ -123,41 +145,74 @@ func assertPublicJWKS(t *testing.T, raw []byte) {
 	if err := json.Unmarshal(raw, &document); err != nil {
 		t.Fatalf("decode JWKS: %v", err)
 	}
+	if len(document) != 1 {
+		t.Fatalf("JWKS must contain only the keys member, got %#v", document)
+	}
 	keys := document["keys"]
-	if len(keys) != 1 {
-		t.Fatalf("expected exactly one JWK, got %d", len(keys))
+	if len(keys) != 2 {
+		t.Fatalf("expected active and retained JWKs, got %d", len(keys))
 	}
 
-	key := keys[0]
-	for name, expected := range map[string]string{
-		"kty": "RSA",
-		"use": "sig",
-		"alg": "RS256",
-		"kid": "identity-key-2026-01",
-		"n":   "AQIDBA",
-		"e":   "AQAB",
-	} {
-		if key[name] != expected {
-			t.Fatalf("unexpected %s: %#v", name, key[name])
+	expectedKeys := []map[string]string{
+		{
+			"kty": "RSA",
+			"use": "sig",
+			"alg": "RS256",
+			"kid": "identity-active-2026-08",
+			"n":   "AQIDBA",
+			"e":   "AQAB",
+		},
+		{
+			"kty": "RSA",
+			"use": "sig",
+			"alg": "RS256",
+			"kid": "identity-previous-2026-07",
+			"n":   "BQYHCA",
+			"e":   "AQAB",
+		},
+	}
+
+	for index, key := range keys {
+		if len(key) != len(expectedKeys[index]) {
+			t.Fatalf("JWK %d has unexpected fields: %#v", index, key)
 		}
-	}
+		for name, expected := range expectedKeys[index] {
+			if key[name] != expected {
+				t.Fatalf("unexpected JWK %d %s: %#v", index, name, key[name])
+			}
+		}
 
-	for _, privateParameter := range []string{"d", "p", "q", "dp", "dq", "qi"} {
-		if _, exists := key[privateParameter]; exists {
-			t.Fatalf("JWKS exposes private parameter %q", privateParameter)
+		for _, privateParameter := range []string{"d", "p", "q", "dp", "dq", "qi"} {
+			if _, exists := key[privateParameter]; exists {
+				t.Fatalf(
+					"JWK %d exposes private parameter %q",
+					index,
+					privateParameter,
+				)
+			}
 		}
 	}
 }
 
 func testJWKS() accesstoken.JWKS {
-	return accesstoken.JWKS{Keys: []accesstoken.JWK{{
-		KeyType:   "RSA",
-		Use:       "sig",
-		Algorithm: "RS256",
-		KeyID:     "identity-key-2026-01",
-		Modulus:   "AQIDBA",
-		Exponent:  "AQAB",
-	}}}
+	return accesstoken.JWKS{Keys: []accesstoken.JWK{
+		{
+			KeyType:   "RSA",
+			Use:       "sig",
+			Algorithm: "RS256",
+			KeyID:     "identity-active-2026-08",
+			Modulus:   "AQIDBA",
+			Exponent:  "AQAB",
+		},
+		{
+			KeyType:   "RSA",
+			Use:       "sig",
+			Algorithm: "RS256",
+			KeyID:     "identity-previous-2026-07",
+			Modulus:   "BQYHCA",
+			Exponent:  "AQAB",
+		},
+	}}
 }
 
 type stubJWKSProvider struct {

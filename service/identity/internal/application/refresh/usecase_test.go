@@ -33,7 +33,7 @@ var refreshTestNow = time.Date(
 	time.UTC,
 )
 
-func TestUseCaseRotatesRefreshToken(t *testing.T) {
+func TestUseCaseRotatesRefreshTokenUsingCurrentPlatformRole(t *testing.T) {
 	t.Parallel()
 
 	var receivedRotation appauth.Rotation
@@ -175,7 +175,7 @@ func validAccount() identity.Identity {
 	return identity.Identity{
 		ID:            testUserID,
 		Email:         "user@example.com",
-		PlatformRole:  identity.PlatformRoleNone,
+		PlatformRole:  identity.PlatformRoleViceAdmin,
 		Status:        identity.StatusActive,
 		EmailVerified: true,
 	}
@@ -251,9 +251,12 @@ type fakeAccessTokenIssuer struct{}
 func (*fakeAccessTokenIssuer) Issue(
 	claims appauth.AccessTokenClaims,
 ) (string, time.Time, error) {
-	if claims.DeviceID != testDeviceID ||
-		claims.JTI != testAccessTokenJTI {
-		return "", time.Time{}, errors.New("unexpected access-token JTI")
+	if claims.Subject != testUserID ||
+		claims.DeviceID != testDeviceID ||
+		claims.PlatformRole != identity.PlatformRoleViceAdmin ||
+		claims.JTI != testAccessTokenJTI ||
+		!claims.IssuedAt.Equal(refreshTestNow) {
+		return "", time.Time{}, errors.New("unexpected access-token claims")
 	}
 
 	return "new-access-token", refreshTestNow.Add(time.Hour), nil

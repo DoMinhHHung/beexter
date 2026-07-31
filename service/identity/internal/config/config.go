@@ -1,7 +1,9 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/netip"
 	"os"
 	"strconv"
@@ -102,13 +104,19 @@ type EmailIPRateLimitConfig struct {
 }
 
 type TokenConfig struct {
-	Issuer           string
-	Audience         string
-	KeyID            string
-	PrivateKeyPath   string
-	AccessTokenTTL   time.Duration
-	AllowedClockSkew time.Duration
-	RefreshSecret    string
+	Issuer               string
+	Audience             string
+	KeyID                string
+	PrivateKeyPath       string
+	AdditionalPublicKeys []TokenPublicKeyConfig
+	AccessTokenTTL       time.Duration
+	AllowedClockSkew     time.Duration
+	RefreshSecret        string
+}
+
+type TokenPublicKeyConfig struct {
+	KeyID         string `json:"kid"`
+	PublicKeyPath string `json:"public_key_path"`
 }
 
 type SessionConfig struct {
@@ -432,6 +440,11 @@ func loadTokenConfig() (TokenConfig, error) {
 		return TokenConfig{}, err
 	}
 
+	additionalPublicKeys, err := readAdditionalPublicKeys(keyID)
+	if err != nil {
+		return TokenConfig{}, err
+	}
+
 	accessTokenTTL, err := readPositiveDuration(
 		"ACCESS_TOKEN_TTL",
 		defaultAccessTokenTTL,
@@ -474,14 +487,73 @@ func loadTokenConfig() (TokenConfig, error) {
 	}
 
 	return TokenConfig{
-		Issuer:           issuer,
-		Audience:         audience,
-		KeyID:            keyID,
-		PrivateKeyPath:   privateKeyPath,
-		AccessTokenTTL:   accessTokenTTL,
-		AllowedClockSkew: allowedClockSkew,
-		RefreshSecret:    refreshSecret,
+		Issuer:               issuer,
+		Audience:             audience,
+		KeyID:                keyID,
+		PrivateKeyPath:       privateKeyPath,
+		AdditionalPublicKeys: additionalPublicKeys,
+		AccessTokenTTL:       accessTokenTTL,
+		AllowedClockSkew:     allowedClockSkew,
+		RefreshSecret:        refreshSecret,
 	}, nil
+}
+
+func readAdditionalPublicKeys(
+	activeKeyID string,
+) ([]TokenPublicKeyConfig, error) {
+	const environmentKey = "JWT_ADDITIONAL_PUBLIC_KEYS"
+
+	value := strings.TrimSpace(os.Getenv(environmentKey))
+	if value == "" {
+		return nil, nil
+	}
+
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.DisallowUnknownFields()
+
+	var configuredKeys []TokenPublicKeyConfig
+	if err := decoder.Decode(&configuredKeys); err != nil || configuredKeys == nil {
+		return nil, fmt.Errorf(
+			"%s must be a JSON array of public-key configurations",
+			environmentKey,
+		)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf(
+			"%s must contain exactly one JSON value",
+			environmentKey,
+		)
+	}
+
+	seenKeyIDs := map[string]struct{}{
+		strings.TrimSpace(activeKeyID): {},
+	}
+	for index := range configuredKeys {
+		configuredKeys[index].KeyID = strings.TrimSpace(
+			configuredKeys[index].KeyID,
+		)
+		configuredKeys[index].PublicKeyPath = strings.TrimSpace(
+			configuredKeys[index].PublicKeyPath,
+		)
+		if configuredKeys[index].KeyID == "" ||
+			configuredKeys[index].PublicKeyPath == "" {
+			return nil, fmt.Errorf(
+				"%s entry %d requires non-blank kid and public_key_path",
+				environmentKey,
+				index,
+			)
+		}
+		if _, exists := seenKeyIDs[configuredKeys[index].KeyID]; exists {
+			return nil, fmt.Errorf(
+				"%s entry %d has a duplicate kid",
+				environmentKey,
+				index,
+			)
+		}
+		seenKeyIDs[configuredKeys[index].KeyID] = struct{}{}
+	}
+
+	return configuredKeys, nil
 }
 
 func loadSessionConfig() (SessionConfig, error) {

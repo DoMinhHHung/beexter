@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -37,17 +38,26 @@ type Config struct {
 	KeyID            string
 	AccessTokenTTL   time.Duration
 	AllowedClockSkew time.Duration
+	VerificationKeys []VerificationKey
+}
+
+// VerificationKey is a verification-only RSA public key. It can represent a
+// previous key retained during rotation or a next key pre-published before it
+// becomes active. It can never be used by RS256.Issue.
+type VerificationKey struct {
+	KeyID     string
+	PublicKey *rsa.PublicKey
 }
 
 type RS256 struct {
 	privateKey       *rsa.PrivateKey
-	publicKey        *rsa.PublicKey
+	verificationKeys map[string]*rsa.PublicKey
 	issuer           string
 	audience         string
 	keyID            string
 	accessTokenTTL   time.Duration
 	allowedClockSkew time.Duration
-	publicJWK        JWK
+	publicJWKS       []JWK
 }
 
 type tokenClaims struct {
@@ -209,23 +219,72 @@ func New(privateKey *rsa.PrivateKey, config Config) (*RS256, error) {
 		)
 	}
 
-	publicKey := &rsa.PublicKey{
-		N: new(big.Int).Set(privateKey.PublicKey.N),
-		E: privateKey.PublicKey.E,
+	publicKey := copyPublicKey(&privateKey.PublicKey)
+	verificationKeys := make(
+		map[string]*rsa.PublicKey,
+		len(config.VerificationKeys)+1,
+	)
+	verificationKeys[keyID] = publicKey
+
+	additionalJWKs := make([]JWK, 0, len(config.VerificationKeys))
+	for index, configuredKey := range config.VerificationKeys {
+		configuredKeyID := strings.TrimSpace(configuredKey.KeyID)
+		if configuredKeyID == "" {
+			return nil, fmt.Errorf(
+				"%w: verification key %d has a blank key ID",
+				ErrConfigInvalid,
+				index,
+			)
+		}
+		if _, exists := verificationKeys[configuredKeyID]; exists {
+			return nil, fmt.Errorf(
+				"%w: verification key %d has a duplicate key ID",
+				ErrConfigInvalid,
+				index,
+			)
+		}
+		if err := validatePublicKey(configuredKey.PublicKey); err != nil {
+			return nil, fmt.Errorf(
+				"create access-token service: verification key %d: %w",
+				index,
+				err,
+			)
+		}
+
+		publicKeyCopy := copyPublicKey(configuredKey.PublicKey)
+		verificationKeys[configuredKeyID] = publicKeyCopy
+		additionalJWKs = append(
+			additionalJWKs,
+			newJWK(publicKeyCopy, configuredKeyID),
+		)
 	}
+	sort.Slice(additionalJWKs, func(left, right int) bool {
+		return additionalJWKs[left].KeyID < additionalJWKs[right].KeyID
+	})
+
+	publicJWKS := make([]JWK, 0, len(additionalJWKs)+1)
+	publicJWKS = append(publicJWKS, newJWK(publicKey, keyID))
+	publicJWKS = append(publicJWKS, additionalJWKs...)
 
 	service := &RS256{
 		privateKey:       privateKey,
-		publicKey:        publicKey,
+		verificationKeys: verificationKeys,
 		issuer:           issuer,
 		audience:         audience,
 		keyID:            keyID,
 		accessTokenTTL:   config.AccessTokenTTL,
 		allowedClockSkew: config.AllowedClockSkew,
+		publicJWKS:       publicJWKS,
 	}
-	service.publicJWK = newJWK(publicKey, keyID)
 
 	return service, nil
+}
+
+func copyPublicKey(publicKey *rsa.PublicKey) *rsa.PublicKey {
+	return &rsa.PublicKey{
+		N: new(big.Int).Set(publicKey.N),
+		E: publicKey.E,
+	}
 }
 
 func (s *RS256) Issue(
@@ -300,11 +359,15 @@ func (s *RS256) Verify(
 				return nil, ErrTokenInvalid
 			}
 			keyID, ok := token.Header["kid"].(string)
-			if !ok || keyID != s.keyID {
+			if !ok || strings.TrimSpace(keyID) == "" {
+				return nil, ErrTokenInvalid
+			}
+			publicKey, exists := s.verificationKeys[keyID]
+			if !exists || publicKey == nil {
 				return nil, ErrTokenInvalid
 			}
 
-			return s.publicKey, nil
+			return publicKey, nil
 		},
 	)
 	if err != nil {
@@ -323,13 +386,14 @@ func (s *RS256) Verify(
 }
 
 func (s *RS256) initialized() bool {
-	return s != nil &&
-		s.privateKey != nil &&
-		s.publicKey != nil &&
-		s.issuer != "" &&
-		s.audience != "" &&
-		s.keyID != "" &&
-		s.accessTokenTTL > 0
+	if s == nil || s.privateKey == nil || s.issuer == "" ||
+		s.audience == "" || s.keyID == "" || s.accessTokenTTL <= 0 ||
+		len(s.publicJWKS) == 0 {
+		return false
+	}
+
+	publicKey, exists := s.verificationKeys[s.keyID]
+	return exists && publicKey != nil
 }
 
 func validateIssueClaims(claims appauth.AccessTokenClaims) error {
