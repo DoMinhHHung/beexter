@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -17,15 +18,16 @@ type statusResponse struct {
 }
 
 type RouterDependencies struct {
-	Signup             SignupExecutor
-	Login              LoginExecutor
-	Refresh            RefreshExecutor
-	VerifyEmail        VerifyEmailExecutor
-	ResendVerification ResendVerificationExecutor
-	ForgotPassword     ForgotPasswordExecutor
-	ResetPassword      ResetPasswordExecutor
-	Authenticator      Authenticator
-	Sessions           SessionManager
+	Signup                   SignupExecutor
+	Login                    LoginExecutor
+	Refresh                  RefreshExecutor
+	VerifyEmail              VerifyEmailExecutor
+	ResendVerification       ResendVerificationExecutor
+	ForgotPassword           ForgotPasswordExecutor
+	ResetPassword            ResetPasswordExecutor
+	CreatePrivilegedIdentity CreatePrivilegedIdentityExecutor
+	Authenticator            Authenticator
+	Sessions                 SessionManager
 }
 
 func NewRouter(
@@ -121,6 +123,24 @@ func NewRouter(
 	mux.Handle(
 		"DELETE /v1/me/sessions/{device_id}",
 		protected(revokeSessionHandler(logger, dependencies.Sessions)),
+	)
+
+	privilegedIdentityCreators := []identity.Role{
+		identity.RoleAdmin,
+		identity.RoleViceAdmin,
+	}
+	mux.Handle(
+		"POST /v1/admin/identities",
+		protected(
+			roleAuthorizationMiddleware(
+				logger,
+				privilegedIdentityCreators,
+				createPrivilegedIdentityHandler(
+					logger,
+					dependencies.CreatePrivilegedIdentity,
+				),
+			),
+		),
 	)
 
 	return applyMiddleware(logger, mux)

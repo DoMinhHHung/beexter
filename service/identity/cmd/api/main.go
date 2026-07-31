@@ -12,6 +12,7 @@ import (
 	"time"
 
 	authenticateapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/authenticate"
+	createidentityapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
 	forgotpasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/forgotpassword"
 	loginapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
 	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
@@ -204,6 +205,15 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create signup repository: %w", err)
 	}
 
+	privilegedIdentityRepository, err :=
+		postgres.NewPrivilegedIdentityRepository(database)
+	if err != nil {
+		return fmt.Errorf(
+			"create privileged identity repository: %w",
+			err,
+		)
+	}
+
 	loginRepository, err := postgres.NewLoginRepository(database)
 	if err != nil {
 		return fmt.Errorf("create login repository: %w", err)
@@ -281,6 +291,20 @@ func run(logger *slog.Logger) error {
 	)
 	if err != nil {
 		return fmt.Errorf("create signup use case: %w", err)
+	}
+
+	privilegedIdentityUseCase, err := createidentityapp.New(
+		privilegedIdentityRepository,
+		passwordHasher,
+		identifierGenerator,
+		identifierGenerator,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"create privileged identity use case: %w",
+			err,
+		)
 	}
 
 	loginUseCase, err := loginapp.New(
@@ -449,15 +473,16 @@ func run(logger *slog.Logger) error {
 		database,
 		cache,
 		httpapi.RouterDependencies{
-			Signup:             signupUseCase,
-			Login:              loginUseCase,
-			Refresh:            refreshUseCase,
-			VerifyEmail:        verifyEmailUseCase,
-			ResendVerification: resendVerificationUseCase,
-			ForgotPassword:     forgotPasswordUseCase,
-			ResetPassword:      resetPasswordUseCase,
-			Authenticator:      authenticateUseCase,
-			Sessions:           sessionManagementService,
+			Signup:                   signupUseCase,
+			Login:                    loginUseCase,
+			Refresh:                  refreshUseCase,
+			VerifyEmail:              verifyEmailUseCase,
+			ResendVerification:       resendVerificationUseCase,
+			ForgotPassword:           forgotPasswordUseCase,
+			ResetPassword:            resetPasswordUseCase,
+			CreatePrivilegedIdentity: privilegedIdentityUseCase,
+			Authenticator:            authenticateUseCase,
+			Sessions:                 sessionManagementService,
 		},
 	)
 
