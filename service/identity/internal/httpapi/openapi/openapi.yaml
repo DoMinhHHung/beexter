@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Beexter Identity Service API
+  title: Beexster Identity Service API
   version: 1.0.0
   description: |
     Identity lifecycle, email/password authentication, link-based verification,
@@ -113,6 +113,7 @@ paths:
               schema: {$ref: '#/components/schemas/RefreshResponse'}
         '400': {$ref: '#/components/responses/InvalidInput'}
         '401': {$ref: '#/components/responses/InvalidToken'}
+        '403': {$ref: '#/components/responses/ForbiddenAuthentication'}
         '500': {$ref: '#/components/responses/InternalError'}
   /v1/auth/logout:
     post:

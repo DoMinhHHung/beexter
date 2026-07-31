@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"time"
 
-	appsignup "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
+	appsignup "github.com/DoMinhHHung/beexster/service/identity/internal/application/signup"
 )
 
 type SignupPolicy struct {

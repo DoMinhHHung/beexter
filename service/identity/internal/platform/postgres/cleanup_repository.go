@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	appcleanup "github.com/DoMinhHHung/beexter/service/identity/internal/application/cleanup"
+	appcleanup "github.com/DoMinhHHung/beexster/service/identity/internal/application/cleanup"
 	"github.com/jackc/pgx/v5"
 )
 

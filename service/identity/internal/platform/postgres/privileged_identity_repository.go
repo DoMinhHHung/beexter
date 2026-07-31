@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	appcreateidentity "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appcreateidentity "github.com/DoMinhHHung/beexster/service/identity/internal/application/createidentity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5"
 )
 

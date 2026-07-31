@@ -7,8 +7,8 @@ import (
 	"net/netip"
 	"time"
 
-	apploginhistory "github.com/DoMinhHHung/beexter/service/identity/internal/application/loginhistory"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	apploginhistory "github.com/DoMinhHHung/beexster/service/identity/internal/application/loginhistory"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )

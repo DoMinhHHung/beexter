@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	applogin "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	applogin "github.com/DoMinhHHung/beexster/service/identity/internal/application/login"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )

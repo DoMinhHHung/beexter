@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	appverifyemail "github.com/DoMinhHHung/beexter/service/identity/internal/application/verifyemail"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appverifyemail "github.com/DoMinhHHung/beexster/service/identity/internal/application/verifyemail"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const handlerVerificationTokenID = "0198f124-659f-7cbd-a441-dc7eea175073"

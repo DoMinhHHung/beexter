@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const lifecycleRateLimitUserID = identity.ID(

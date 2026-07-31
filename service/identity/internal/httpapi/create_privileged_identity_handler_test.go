@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	appcreateidentity "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	appcreateidentity "github.com/DoMinhHHung/beexster/service/identity/internal/application/createidentity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 func TestCreatePrivilegedIdentityHandler(t *testing.T) {

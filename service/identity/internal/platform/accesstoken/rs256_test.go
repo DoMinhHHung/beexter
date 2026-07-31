@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
-	testIssuer   = "https://identity.beexter.test"
-	testAudience = "beexter-api"
+	testIssuer   = "https://identity.beexster.test"
+	testAudience = "beexster-api"
 	testKeyID    = "identity-signing-2026-07"
 	testSubject  = identity.ID("0198f124-659f-7cbd-a441-dc7eea175073")
 	testDeviceID = "0198f124-659f-7cbd-a441-dc7eea175074"

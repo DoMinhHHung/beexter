@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	appdeleteaccount "github.com/DoMinhHHung/beexter/service/identity/internal/application/deleteaccount"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appdeleteaccount "github.com/DoMinhHHung/beexster/service/identity/internal/application/deleteaccount"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5"
 )
 

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	authenticateapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/authenticate"
-	appcreateidentity "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	authenticateapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/authenticate"
+	appcreateidentity "github.com/DoMinhHHung/beexster/service/identity/internal/application/createidentity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 func TestHealthHandler(t *testing.T) {

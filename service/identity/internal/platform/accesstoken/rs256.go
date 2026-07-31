@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )

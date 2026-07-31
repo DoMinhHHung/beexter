@@ -78,7 +78,7 @@ func TestIdentitySubjectModelMigration(t *testing.T) {
 		}
 	}
 
-	if _, err := tx.Exec(ctx, migrationBody(t, "000002_identity_subject_model.up.sql")); err != nil {
+	if _, err := tx.Exec(ctx, migrationBody(t, "000002_refactor_identity_subject_model.up.sql")); err != nil {
 		t.Fatalf("apply subject-model migration: %v", err)
 	}
 
@@ -148,7 +148,7 @@ func TestIdentitySubjectModelMigration(t *testing.T) {
 	}
 	_, downErr := tx.Exec(
 		ctx,
-		migrationBody(t, "000002_identity_subject_model.down.sql"),
+		migrationBody(t, "000002_refactor_identity_subject_model.down.sql"),
 	)
 	if downErr == nil || !strings.Contains(
 		downErr.Error(),

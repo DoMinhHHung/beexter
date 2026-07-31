@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	appsignup "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
+	appsignup "github.com/DoMinhHHung/beexster/service/identity/internal/application/signup"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )

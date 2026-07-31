@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"net/netip"
 
-	appsignup "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appsignup "github.com/DoMinhHHung/beexster/service/identity/internal/application/signup"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type SignupExecutor interface {

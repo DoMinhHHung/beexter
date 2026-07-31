@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	apploginhistory "github.com/DoMinhHHung/beexter/service/identity/internal/application/loginhistory"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	apploginhistory "github.com/DoMinhHHung/beexster/service/identity/internal/application/loginhistory"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type LoginHistoryExecutor interface {

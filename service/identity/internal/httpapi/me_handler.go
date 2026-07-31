@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	getmeapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/getme"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	getmeapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/getme"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type GetMeExecutor interface {

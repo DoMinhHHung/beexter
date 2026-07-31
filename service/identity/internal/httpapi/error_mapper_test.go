@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 func TestWriteApplicationError(t *testing.T) {

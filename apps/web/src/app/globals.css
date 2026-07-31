@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 225 58% 4%;
+    --foreground: 210 40% 98%;
+    --card: 228 42% 9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 228 44% 8%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 248 90% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 226 28% 15%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 226 24% 13%;
+    --muted-foreground: 218 18% 68%;
+    --accent: 194 92% 47%;
+    --accent-foreground: 225 58% 4%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 28% 22%;
+    --input: 220 28% 22%;
+    --ring: 248 90% 67%;
+    --radius: 1.25rem;
+    --cosmic-violet: 263 88% 67%;
+    --cosmic-blue: 221 91% 62%;
+    --cosmic-cyan: 190 95% 53%;
+    --cosmic-green: 151 68% 49%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply min-h-dvh bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at 8% 12%, rgba(124, 58, 237, 0.17), transparent 30%),
+      radial-gradient(circle at 88% 18%, rgba(14, 165, 233, 0.12), transparent 28%),
+      linear-gradient(180deg, #050816 0%, #02040d 100%);
+  }
+
+  ::selection {
+    background: rgba(129, 140, 248, 0.35);
+    color: white;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  .cosmic-grid {
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: linear-gradient(to bottom, black, transparent 78%);
+  }
+
+  .star-field {
+    background-image:
+      radial-gradient(circle, rgba(255, 255, 255, 0.92) 0 1px, transparent 1.4px),
+      radial-gradient(circle, rgba(125, 211, 252, 0.8) 0 1px, transparent 1.5px),
+      radial-gradient(circle, rgba(196, 181, 253, 0.75) 0 1px, transparent 1.5px);
+    background-position: 0 0, 47px 91px, 119px 36px;
+    background-size: 173px 173px, 241px 241px, 307px 307px;
+  }
+
+  .glass-panel {
+    @apply border border-white/10 bg-slate-950/[0.55] shadow-panel backdrop-blur-xl;
+  }
+
+  .text-gradient {
+    @apply bg-gradient-to-r from-violet-300 via-indigo-200 to-cyan-200 bg-clip-text text-transparent;
+  }
+
+  .cosmic-ring {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 0 34px rgba(99, 102, 241, 0.2),
+      inset 0 0 24px rgba(56, 189, 248, 0.06);
+  }
+
+  .safe-bottom {
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  .noise-overlay {
+    opacity: 0.02;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

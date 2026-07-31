@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"net/netip"
 
-	appresetpassword "github.com/DoMinhHHung/beexter/service/identity/internal/application/resetpassword"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appresetpassword "github.com/DoMinhHHung/beexster/service/identity/internal/application/resetpassword"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type ResetPasswordExecutor interface {

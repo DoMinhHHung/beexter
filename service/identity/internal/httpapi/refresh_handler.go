@@ -9,8 +9,8 @@ import (
 	"net/netip"
 	"time"
 
-	apprefresh "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	apprefresh "github.com/DoMinhHHung/beexster/service/identity/internal/application/refresh"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type RefreshExecutor interface {

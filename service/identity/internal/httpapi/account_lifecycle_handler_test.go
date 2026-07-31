@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	appdeleteaccount "github.com/DoMinhHHung/beexter/service/identity/internal/application/deleteaccount"
-	appreactivation "github.com/DoMinhHHung/beexter/service/identity/internal/application/requestreactivation"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	appdeleteaccount "github.com/DoMinhHHung/beexster/service/identity/internal/application/deleteaccount"
+	appreactivation "github.com/DoMinhHHung/beexster/service/identity/internal/application/requestreactivation"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 func TestDeleteAccountHandlerUsesAuthenticatedIdentity(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	authenticateapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/authenticate"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	authenticateapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/authenticate"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const middlewareTestDeviceID = "0198f124-659f-7cbd-a441-dc7eea175074"

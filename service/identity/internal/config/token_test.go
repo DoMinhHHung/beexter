@@ -15,7 +15,7 @@ func TestLoadTokenConfigDefaults(t *testing.T) {
 	}
 
 	if configuration.Issuer != "https://identity.example.test" ||
-		configuration.Audience != "beexter-services" ||
+		configuration.Audience != "beexster-services" ||
 		configuration.KeyID != "identity-2026-01" ||
 		configuration.PrivateKeyPath != "./dev-private.pem" ||
 		configuration.AccessTokenTTL != 15*time.Minute ||
@@ -93,7 +93,7 @@ func setValidTokenEnvironment(t *testing.T) {
 	t.Helper()
 
 	t.Setenv("JWT_ISSUER", " https://identity.example.test ")
-	t.Setenv("JWT_AUDIENCE", " beexter-services ")
+	t.Setenv("JWT_AUDIENCE", " beexster-services ")
 	t.Setenv("JWT_KEY_ID", " identity-2026-01 ")
 	t.Setenv("JWT_PRIVATE_KEY_PATH", " ./dev-private.pem ")
 	t.Setenv("ACCESS_TOKEN_TTL", "")

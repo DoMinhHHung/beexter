@@ -9,8 +9,8 @@ import (
 	"net/netip"
 	"time"
 
-	applogin "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	applogin "github.com/DoMinhHHung/beexster/service/identity/internal/application/login"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type LoginExecutor interface {

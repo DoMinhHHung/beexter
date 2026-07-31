@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	appoutbox "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
+	appoutbox "github.com/DoMinhHHung/beexster/service/identity/internal/application/outbox"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )

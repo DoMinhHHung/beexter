@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"net/netip"
 
-	appdeleteaccount "github.com/DoMinhHHung/beexter/service/identity/internal/application/deleteaccount"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appdeleteaccount "github.com/DoMinhHHung/beexster/service/identity/internal/application/deleteaccount"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type DeleteAccountExecutor interface {

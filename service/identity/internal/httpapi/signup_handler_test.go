@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	appsignup "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appsignup "github.com/DoMinhHHung/beexster/service/identity/internal/application/signup"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 func TestSignupHandlerCreatesIdentity(t *testing.T) {

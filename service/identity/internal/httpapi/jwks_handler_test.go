@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/accesstoken"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/accesstoken"
 )
 
 func TestJWKSEndpointIsUnauthenticated(t *testing.T) {
@@ -76,7 +76,7 @@ func TestJWKSHandlerKeyMatchesSigner(t *testing.T) {
 	}
 	provider, err := accesstoken.New(privateKey, accesstoken.Config{
 		Issuer:           "https://identity.example.com",
-		Audience:         "beexter-services",
+		Audience:         "beexster-services",
 		KeyID:            "identity-key-2026-01",
 		AccessTokenTTL:   15 * time.Minute,
 		AllowedClockSkew: 30 * time.Second,

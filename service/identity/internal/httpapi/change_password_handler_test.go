@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	appchangepassword "github.com/DoMinhHHung/beexter/service/identity/internal/application/changepassword"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	appchangepassword "github.com/DoMinhHHung/beexster/service/identity/internal/application/changepassword"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const changePasswordHandlerUserID = identity.ID(

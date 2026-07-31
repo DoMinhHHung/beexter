@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	appresendverification "github.com/DoMinhHHung/beexter/service/identity/internal/application/resendverification"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appresendverification "github.com/DoMinhHHung/beexster/service/identity/internal/application/resendverification"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 func TestResendVerificationHandlerAcceptsRequest(

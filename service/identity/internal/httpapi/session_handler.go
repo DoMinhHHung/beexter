@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	sessionmanagementapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/sessionmanagement"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	sessionmanagementapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/sessionmanagement"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type SessionManager interface {

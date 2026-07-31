@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	apprefresh "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	apprefresh "github.com/DoMinhHHung/beexster/service/identity/internal/application/refresh"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5"
 )
 

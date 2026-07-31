@@ -1,4 +1,4 @@
-module github.com/DoMinhHHung/beexter/service/identity
+module github.com/DoMinhHHung/beexster/service/identity
 
 go 1.26.5
 

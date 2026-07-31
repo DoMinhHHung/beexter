@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 const minimumKeySecretLength = 32

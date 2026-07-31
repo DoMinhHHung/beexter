@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -43,7 +44,7 @@ const (
 
 	defaultSMTPHost     = "smtp.gmail.com"
 	defaultSMTPPort     = 587
-	defaultSMTPFromName = "Beexter"
+	defaultSMTPFromName = "Beexster"
 	defaultSMTPTimeout  = 10 * time.Second
 
 	defaultOutboxPollInterval    = 2 * time.Second
@@ -67,8 +68,9 @@ type Config struct {
 }
 
 type HTTPConfig struct {
-	Addr            string
-	ShutdownTimeout time.Duration
+	Addr                 string
+	ShutdownTimeout      time.Duration
+	TrustedProxyPrefixes []netip.Prefix
 }
 
 type PostgreSQLConfig struct {
@@ -207,10 +209,49 @@ func loadHTTPConfig() (HTTPConfig, error) {
 		return HTTPConfig{}, err
 	}
 
+	trustedProxyPrefixes, err := readIPPrefixes(
+		"HTTP_TRUSTED_PROXY_CIDRS",
+	)
+	if err != nil {
+		return HTTPConfig{}, err
+	}
+
 	return HTTPConfig{
-		Addr:            fmt.Sprintf(":%d", httpPort),
-		ShutdownTimeout: shutdownTimeout,
+		Addr:                 fmt.Sprintf(":%d", httpPort),
+		ShutdownTimeout:      shutdownTimeout,
+		TrustedProxyPrefixes: trustedProxyPrefixes,
 	}, nil
+}
+
+func readIPPrefixes(key string) ([]netip.Prefix, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(value, ",")
+	prefixes := make([]netip.Prefix, 0, len(parts))
+
+	for _, part := range parts {
+		cidr := strings.TrimSpace(part)
+		if cidr == "" {
+			return nil, fmt.Errorf("%s contains an empty CIDR", key)
+		}
+
+		prefix, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"%s contains invalid CIDR %q: %w",
+				key,
+				cidr,
+				err,
+			)
+		}
+
+		prefixes = append(prefixes, prefix.Masked())
+	}
+
+	return prefixes, nil
 }
 
 func loadPostgreSQLConfig() (PostgreSQLConfig, error) {

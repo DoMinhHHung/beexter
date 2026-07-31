@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 func TestPlatformRoleFromNullString(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	appforgotpassword "github.com/DoMinhHHung/beexter/service/identity/internal/application/forgotpassword"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	appforgotpassword "github.com/DoMinhHHung/beexster/service/identity/internal/application/forgotpassword"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 func TestForgotPasswordHandlerAcceptsRequest(t *testing.T) {

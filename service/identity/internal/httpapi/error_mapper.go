@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
 )
 
 type errorMapping struct {

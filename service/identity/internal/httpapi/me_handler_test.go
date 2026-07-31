@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	appauth "github.com/DoMinhHHung/beexter/service/identity/internal/application/auth"
-	getmeapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/getme"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appauth "github.com/DoMinhHHung/beexster/service/identity/internal/application/auth"
+	getmeapp "github.com/DoMinhHHung/beexster/service/identity/internal/application/getme"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 func TestMeHandlerReturnsBasicIdentity(t *testing.T) {

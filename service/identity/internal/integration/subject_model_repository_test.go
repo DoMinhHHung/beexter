@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	appcreateidentity "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
-	appsignup "github.com/DoMinhHHung/beexter/service/identity/internal/application/signup"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/idgen"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/passwordhash"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/platform/postgres"
+	appcreateidentity "github.com/DoMinhHHung/beexster/service/identity/internal/application/createidentity"
+	appsignup "github.com/DoMinhHHung/beexster/service/identity/internal/application/signup"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/idgen"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/passwordhash"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/platform/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

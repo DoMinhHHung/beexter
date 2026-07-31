@@ -9,9 +9,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
-	domainlocale "github.com/DoMinhHHung/beexter/service/identity/internal/domain/locale"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
+	domainlocale "github.com/DoMinhHHung/beexster/service/identity/internal/domain/locale"
 )
 
 const (

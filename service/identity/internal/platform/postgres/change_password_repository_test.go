@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	appchangepassword "github.com/DoMinhHHung/beexter/service/identity/internal/application/changepassword"
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	appchangepassword "github.com/DoMinhHHung/beexster/service/identity/internal/application/changepassword"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 )
 
 func TestValidateChangePasswordState(t *testing.T) {

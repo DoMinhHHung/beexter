@@ -4,9 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
-	"github.com/DoMinhHHung/beexter/service/identity/internal/domain/identity"
+	"github.com/DoMinhHHung/beexster/service/identity/internal/domain/identity"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -34,6 +35,7 @@ type RouterDependencies struct {
 	Authenticator            Authenticator
 	Sessions                 SessionManager
 	JWKS                     JWKSProvider
+	TrustedProxyPrefixes     []netip.Prefix
 }
 
 func NewRouter(
@@ -180,7 +182,10 @@ func NewRouter(
 		),
 	)
 
-	return applyMiddleware(logger, mux)
+	return trustedProxyMiddleware(
+		dependencies.TrustedProxyPrefixes,
+		applyMiddleware(logger, mux),
+	)
 }
 
 func healthHandler(logger *slog.Logger) http.HandlerFunc {
