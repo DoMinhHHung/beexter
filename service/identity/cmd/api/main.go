@@ -15,6 +15,7 @@ import (
 	changepasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/changepassword"
 	createidentityapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
 	forgotpasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/forgotpassword"
+	getmeapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/getme"
 	loginapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
 	outboxapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/outbox"
 	refreshapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/refresh"
@@ -249,6 +250,11 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create authentication repository: %w", err)
 	}
 
+	meRepository, err := postgres.NewMeRepository(database)
+	if err != nil {
+		return fmt.Errorf("create me repository: %w", err)
+	}
+
 	verifyEmailRepository, err := postgres.NewVerifyEmailRepository(database)
 	if err != nil {
 		return fmt.Errorf("create verify-email repository: %w", err)
@@ -366,6 +372,11 @@ func run(logger *slog.Logger) error {
 	)
 	if err != nil {
 		return fmt.Errorf("create authentication use case: %w", err)
+	}
+
+	meUseCase, err := getmeapp.New(meRepository)
+	if err != nil {
+		return fmt.Errorf("create get-me use case: %w", err)
 	}
 
 	sessionManagementService, err := sessionmanagementapp.New(sessionStore)
@@ -517,6 +528,7 @@ func run(logger *slog.Logger) error {
 			ForgotPassword:           forgotPasswordUseCase,
 			ResetPassword:            resetPasswordUseCase,
 			ChangePassword:           changePasswordUseCase,
+			Me:                       meUseCase,
 			CreatePrivilegedIdentity: privilegedIdentityUseCase,
 			Authenticator:            authenticateUseCase,
 			Sessions:                 sessionManagementService,

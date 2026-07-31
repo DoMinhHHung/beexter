@@ -26,6 +26,7 @@ type RouterDependencies struct {
 	ForgotPassword           ForgotPasswordExecutor
 	ResetPassword            ResetPasswordExecutor
 	ChangePassword           ChangePasswordExecutor
+	Me                       GetMeExecutor
 	CreatePrivilegedIdentity CreatePrivilegedIdentityExecutor
 	Authenticator            Authenticator
 	Sessions                 SessionManager
@@ -119,6 +120,11 @@ func NewRouter(
 	mux.Handle(
 		"POST /v1/auth/logout-all",
 		protected(logoutAllHandler(logger, dependencies.Sessions)),
+	)
+
+	mux.Handle(
+		"GET /v1/me",
+		protected(meHandler(logger, dependencies.Me)),
 	)
 
 	mux.Handle(
