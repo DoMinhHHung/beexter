@@ -18,12 +18,18 @@ import (
 )
 
 const (
-	keyPrefix       = "refresh_token:"
-	indexKeyPrefix  = "refresh_token_index:"
-	refreshTokenTTL = 604800 * time.Second
+	keyPrefix           = "refresh_token:"
+	indexKeyPrefix      = "refresh_token_index:"
+	revocationKeyPrefix = "refresh_token_revoked_before:"
+	refreshTokenTTL     = 604800 * time.Second
 )
 
 const saveSessionScript = `
+local revoked_before = redis.call("GET", KEYS[3])
+if revoked_before and ARGV[3] <= revoked_before then
+    return 0
+end
+
 redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2])
 redis.call("SADD", KEYS[2], KEYS[1])
 redis.call("PEXPIRE", KEYS[2], ARGV[2])
@@ -41,14 +47,26 @@ return deleted
 
 const listSessionsScript = `
 local session_keys = redis.call("SMEMBERS", KEYS[1])
+local revoked_before = redis.call("GET", KEYS[2])
 local sessions = {}
 
 for _, session_key in ipairs(session_keys) do
     local raw_session = redis.call("GET", session_key)
-    if raw_session then
-        table.insert(sessions, raw_session)
-    else
+    if not raw_session then
         redis.call("SREM", KEYS[1], session_key)
+    elseif revoked_before then
+        local decoded_ok, current = pcall(cjson.decode, raw_session)
+        if decoded_ok
+            and type(current) == "table"
+            and type(current.created_at) == "string"
+            and current.created_at <= revoked_before then
+            redis.call("DEL", session_key)
+            redis.call("SREM", KEYS[1], session_key)
+        else
+            table.insert(sessions, raw_session)
+        end
+    else
+        table.insert(sessions, raw_session)
     end
 end
 
@@ -61,6 +79,7 @@ return sessions
 
 const rotateSessionScript = `
 local function revoke_all()
+    redis.call("DEL", KEYS[1])
     local session_keys = redis.call("SMEMBERS", KEYS[2])
     for _, session_key in ipairs(session_keys) do
         redis.call("DEL", session_key)
@@ -85,6 +104,18 @@ if current.token ~= ARGV[1]
     or current.device_id ~= ARGV[3] then
     revoke_all()
     return -1
+end
+
+local revoked_before = redis.call("GET", KEYS[3])
+if revoked_before then
+    if type(current.created_at) ~= "string" then
+        revoke_all()
+        return -2
+    end
+    if current.created_at <= revoked_before then
+        revoke_all()
+        return 0
+    end
 end
 
 current.token = ARGV[4]
@@ -116,6 +147,13 @@ return deleted
 `
 
 const revokeSessionsCreatedAtOrBeforeScript = `
+local existing_cutoff = redis.call("GET", KEYS[2])
+if not existing_cutoff or existing_cutoff < ARGV[2] then
+    redis.call("SET", KEYS[2], ARGV[2], "PX", ARGV[3])
+else
+    redis.call("PEXPIRE", KEYS[2], ARGV[3])
+end
+
 local session_keys = redis.call("SMEMBERS", KEYS[1])
 local deleted = 0
 
@@ -155,6 +193,9 @@ var (
 	)
 	ErrInvalidSession = errors.New("refresh session is invalid")
 	ErrCorruptSession = errors.New("refresh session state is corrupt")
+	ErrSessionRevoked = errors.New(
+		"refresh session was rejected by a credential revocation fence",
+	)
 )
 
 type Store struct {
@@ -226,17 +267,30 @@ func (s *Store) Save(
 	)
 	defer cancelOperation()
 
-	if _, err := s.saveScript.Run(
+	result, err := s.saveScript.Run(
 		operationContext,
 		s.client,
 		[]string{
 			key(session.UserID, session.DeviceID),
 			indexKey(session.UserID),
+			revocationKey(session.UserID),
 		},
 		payload,
 		refreshTokenTTL.Milliseconds(),
-	).Result(); err != nil {
+		session.CreatedAt.UTC().Truncate(time.Second).Format(time.RFC3339),
+	).Int64()
+	if err != nil {
 		return fmt.Errorf("save refresh session in Redis: %w", err)
+	}
+	if result == 0 {
+		return ErrSessionRevoked
+	}
+	if result != 1 {
+		return fmt.Errorf(
+			"%w: unexpected save result %d",
+			ErrCorruptSession,
+			result,
+		)
 	}
 
 	return nil
@@ -296,7 +350,10 @@ func (s *Store) List(
 	rawSessions, err := s.listScript.Run(
 		operationContext,
 		s.client,
-		[]string{indexKey(userID)},
+		[]string{
+			indexKey(userID),
+			revocationKey(userID),
+		},
 	).StringSlice()
 	if err != nil {
 		return nil, fmt.Errorf("list refresh sessions from Redis: %w", err)
@@ -346,6 +403,7 @@ func (s *Store) Rotate(
 		[]string{
 			key(rotation.UserID, rotation.DeviceID),
 			indexKey(rotation.UserID),
+			revocationKey(rotation.UserID),
 		},
 		rotation.PresentedTokenID,
 		rotation.UserID.String(),
@@ -431,9 +489,13 @@ func (s *Store) RevokeCreatedAtOrBefore(
 	if _, err := s.revokeBeforeScript.Run(
 		operationContext,
 		s.client,
-		[]string{indexKey(userID)},
+		[]string{
+			indexKey(userID),
+			revocationKey(userID),
+		},
 		userID.String(),
 		cutoff.UTC().Truncate(time.Second).Format(time.RFC3339),
+		refreshTokenTTL.Milliseconds(),
 	).Result(); err != nil {
 		return fmt.Errorf(
 			"revoke refresh sessions created at or before cutoff in Redis: %w",
@@ -633,6 +695,10 @@ func key(userID identity.ID, deviceID string) string {
 
 func indexKey(userID identity.ID) string {
 	return indexKeyPrefix + userID.String()
+}
+
+func revocationKey(userID identity.ID) string {
+	return revocationKeyPrefix + userID.String()
 }
 
 func validateCanonicalUUIDV7(rawID string) error {

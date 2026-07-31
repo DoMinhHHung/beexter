@@ -25,6 +25,7 @@ type RouterDependencies struct {
 	ResendVerification       ResendVerificationExecutor
 	ForgotPassword           ForgotPasswordExecutor
 	ResetPassword            ResetPasswordExecutor
+	ChangePassword           ChangePasswordExecutor
 	CreatePrivilegedIdentity CreatePrivilegedIdentityExecutor
 	Authenticator            Authenticator
 	Sessions                 SessionManager
@@ -104,6 +105,11 @@ func NewRouter(
 			handler,
 		)
 	}
+
+	mux.Handle(
+		"PUT /v1/auth/change-password",
+		protected(changePasswordHandler(logger, dependencies.ChangePassword)),
+	)
 
 	mux.Handle(
 		"POST /v1/auth/logout",

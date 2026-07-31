@@ -12,6 +12,7 @@ import (
 	"time"
 
 	authenticateapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/authenticate"
+	changepasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/changepassword"
 	createidentityapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/createidentity"
 	forgotpasswordapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/forgotpassword"
 	loginapp "github.com/DoMinhHHung/beexter/service/identity/internal/application/login"
@@ -70,6 +71,11 @@ func run(logger *slog.Logger) error {
 	resetPasswordConfig, err := config.LoadResetPassword()
 	if err != nil {
 		return fmt.Errorf("load reset-password config: %w", err)
+	}
+
+	changePasswordConfig, err := config.LoadChangePassword()
+	if err != nil {
+		return fmt.Errorf("load change-password config: %w", err)
 	}
 
 	applicationContext, stopApplication := signal.NotifyContext(
@@ -200,6 +206,20 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create reset-password rate limiter: %w", err)
 	}
 
+	changePasswordLimiter, err := ratelimit.NewChangePasswordLimiter(
+		slidingWindowLimiter,
+		rateLimitKeys,
+		ratelimit.ChangePasswordPolicy{
+			IPLimit:        changePasswordConfig.IPLimit,
+			IPWindow:       changePasswordConfig.IPWindow,
+			IdentityLimit:  changePasswordConfig.IdentityLimit,
+			IdentityWindow: changePasswordConfig.IdentityWindow,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("create change-password rate limiter: %w", err)
+	}
+
 	signupRepository, err := postgres.NewSignupRepository(database)
 	if err != nil {
 		return fmt.Errorf("create signup repository: %w", err)
@@ -251,6 +271,11 @@ func run(logger *slog.Logger) error {
 	resetPasswordRepository, err := postgres.NewResetPasswordRepository(database)
 	if err != nil {
 		return fmt.Errorf("create reset-password repository: %w", err)
+	}
+
+	changePasswordRepository, err := postgres.NewChangePasswordRepository(database)
+	if err != nil {
+		return fmt.Errorf("create change-password repository: %w", err)
 	}
 
 	passwordHasher := passwordhash.New()
@@ -390,6 +415,17 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create reset-password use case: %w", err)
 	}
 
+	changePasswordUseCase, err := changepasswordapp.New(
+		changePasswordRepository,
+		passwordHasher,
+		changePasswordLimiter,
+		sessionStore,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("create change-password use case: %w", err)
+	}
+
 	emailCatalog, err := emaildelivery.NewCatalog()
 	if err != nil {
 		return fmt.Errorf("create email translation catalog: %w", err)
@@ -480,6 +516,7 @@ func run(logger *slog.Logger) error {
 			ResendVerification:       resendVerificationUseCase,
 			ForgotPassword:           forgotPasswordUseCase,
 			ResetPassword:            resetPasswordUseCase,
+			ChangePassword:           changePasswordUseCase,
 			CreatePrivilegedIdentity: privilegedIdentityUseCase,
 			Authenticator:            authenticateUseCase,
 			Sessions:                 sessionManagementService,

@@ -124,6 +124,30 @@ func (b *KeyBuilder) ForEmail(
 	), nil
 }
 
+func (b *KeyBuilder) ForIdentity(
+	action Action,
+	identityID identity.ID,
+) (string, error) {
+	if err := b.validate(action); err != nil {
+		return "", err
+	}
+	if identityID.IsZero() {
+		return "", ErrInvalidSubject
+	}
+
+	identityDigest, err := b.hashSubject(identityID.String())
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf(
+		"%s%s:identity:%s",
+		rateLimitKeyPrefix,
+		action,
+		identityDigest,
+	), nil
+}
+
 func (b *KeyBuilder) validate(action Action) error {
 	if b == nil || len(b.secret) < minimumKeySecretLength {
 		return ErrInvalidKeySecret
